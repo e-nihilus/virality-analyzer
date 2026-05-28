@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
+
+from ...ai_services.mock_analyzer import generate_mock_analysis
+from ...core.auth import get_current_user_id
+from ...schemas.analysis import (
+    AnalysisCreateResponse,
+    AnalysisResult,
+    AnalysisStatus,
+    AnalysisSummary,
+)
+from ...services import analysis_service, storage_service
+
+router = APIRouter(prefix="/api/viral-intelligence/analysis", tags=["viral-intelligence"])
+
+
+@router.get("/mock", response_model=AnalysisResult)
+def get_mock_analysis():
+    """Return a complete mock analysis for UI development."""
+    return generate_mock_analysis()
+
+
+@router.post("", response_model=AnalysisCreateResponse, status_code=201)
+async def create_analysis(
+    file: UploadFile,
+    user_id: str | None = Depends(get_current_user_id),
+):
+    """Upload a video and start analysis."""
+    # Validate
+    error = storage_service.validate_upload(file.filename, file.size)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
+    analysis_id = f"ana_{uuid.uuid4()}"
+    filename = file.filename or "video.mp4"
+
+    # Save video to disk
+    await storage_service.save_upload(analysis_id, file)
+
+    # Register as pending and launch background analysis
+    analysis_service.create_pending(analysis_id, filename, user_id=user_id)
+    analysis_service.start_analysis_background(analysis_id, user_id=user_id)
+
+    return AnalysisCreateResponse(
+        id=analysis_id,
+        status=AnalysisStatus.processing,
+        progress=0.0,
+        message="Analysis started",
+    )
+
+
+@router.get("/{analysis_id}", response_model=AnalysisResult)
+def get_analysis(analysis_id: str):
+    """Get the status and result of an analysis."""
+    result = analysis_service.get_analysis(analysis_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return result
+
+
+@router.get("", response_model=list[AnalysisSummary])
+def list_analyses(user_id: str | None = Depends(get_current_user_id)):
+    """List all analyses (summary view)."""
+    results = analysis_service.list_analyses()
+    return [
+        AnalysisSummary(
+            id=r.id,
+            user_id=r.user_id,
+            status=r.status,
+            video=r.video,
+            overall_virality_score=r.overall_virality_score,
+        )
+        for r in results
+    ]

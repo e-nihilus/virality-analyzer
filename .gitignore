@@ -1,0 +1,46 @@
+# Node.js
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.eggs/
+
+# Uploads
+uploads/**
+!uploads/.gitkeep
+
+# IDEs
+.vscode/*
+!.vscode/settings.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build
+build/
+*.log
+
+# Testing / Misc
+.pytest_cache/
+.coverage
+htmlcov/
+
+esfera.md
+plan.md
+Predicción de viralidad.md
+stitch_aurea_viral_intelligence (web)
+stitch_aurea_viral_intelligence(mobile)
+ToDo.txt

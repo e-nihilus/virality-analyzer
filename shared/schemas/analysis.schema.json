@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AnalysisResult",
+  "description": "Aurea Viral Intelligence — Analysis result contract (MVP)",
+  "type": "object",
+  "required": ["id", "status"],
+  "properties": {
+    "id": { "type": "string" },
+    "status": { "type": "string", "enum": ["pending", "processing", "completed", "failed"] },
+    "progress": { "type": "number", "minimum": 0, "maximum": 1 },
+    "video": {
+      "type": "object",
+      "properties": {
+        "filename": { "type": "string" },
+        "duration_seconds": { "type": "number" },
+        "fps": { "type": "number" },
+        "width": { "type": "integer" },
+        "height": { "type": "integer" }
+      },
+      "required": ["filename"]
+    },
+    "overall_virality_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "retention_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "rewatch_factor": { "type": "number" },
+    "dominant_emotion": { "type": "string" },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["time_seconds"],
+        "properties": {
+          "time_seconds": { "type": "number" },
+          "virality": { "type": "number", "minimum": 0, "maximum": 1 },
+          "valence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "arousal": { "type": "number", "minimum": 0, "maximum": 1 },
+          "retention": { "type": "number", "minimum": 0, "maximum": 1 },
+          "label": { "type": "string" }
+        }
+      }
+    },
+    "top_clips": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start_seconds", "end_seconds", "score"],
+        "properties": {
+          "start_seconds": { "type": "number" },
+          "end_seconds": { "type": "number" },
+          "score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "predicted_retention": { "type": "number", "minimum": 0, "maximum": 1 },
+          "reasons": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "insights": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "description", "severity"],
+        "properties": {
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "severity": { "type": "string", "enum": ["high", "medium", "low"] }
+        }
+      }
+    }
+  }
+}
