@@ -9,6 +9,10 @@ interface AnalysisState {
   error: string | null;
   source: "backend" | "local-mock";
   videoUrl: string | null;
+  playbackTime: number;
+  isPlaying: boolean;
+  setPlaybackTime: (t: number) => void;
+  setIsPlaying: (playing: boolean) => void;
   loadAnalysis: () => Promise<void>;
 }
 
@@ -18,6 +22,10 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   error: null,
   source: "local-mock",
   videoUrl: null,
+  playbackTime: 0,
+  isPlaying: false,
+  setPlaybackTime: (t) => set({ playbackTime: t }),
+  setIsPlaying: (playing) => set({ isPlaying: playing }),
 
   loadAnalysis: async () => {
     set({ loading: true, error: null });

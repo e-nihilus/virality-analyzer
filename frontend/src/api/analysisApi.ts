@@ -11,6 +11,16 @@ export function fetchAnalysis(id: string): Promise<AnalysisResult> {
   return apiFetch<AnalysisResult>(`${API_PREFIX}/${id}`);
 }
 
+export function exportClip(analysisId: string, clipIndex: number): Promise<void> {
+  return apiFetch(`${API_PREFIX}/${analysisId}/clips/${clipIndex}/export`, {
+    method: "POST",
+  });
+}
+
+export function downloadClipUrl(analysisId: string, clipIndex: number): string {
+  return buildUrl(`${API_PREFIX}/${analysisId}/clips/${clipIndex}/download`);
+}
+
 export async function createAnalysis(file: File): Promise<{ id: string; status: string }> {
   const form = new FormData();
   form.append("file", file);

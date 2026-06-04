@@ -136,7 +136,7 @@ export default function VideoUploadPanel({ className }: VideoUploadPanelProps) {
           {dragOver ? "Drop to analyze" : "Drop a video or click to upload"}
         </p>
         <p className="text-mono-metric text-on-surface-variant/60 mt-1">
-          MP4, MOV, WebM, AVI, MKV — Max 200 MB
+          MP4, MOV, WebM, AVI, MKV — Max 1 GB
         </p>
       </div>
     </div>

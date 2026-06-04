@@ -6,6 +6,7 @@ interface EmotionQuadrantProps {
   emotion?: string;
   intensity?: number;
   timestamp?: string;
+  isPlaying?: boolean;
 }
 
 export default function EmotionQuadrant({
@@ -14,6 +15,7 @@ export default function EmotionQuadrant({
   emotion = "Surprise",
   intensity = 0.88,
   timestamp = "T+00:12.04",
+  isPlaying = true,
 }: EmotionQuadrantProps) {
   // Map 0-1 values to percentage positions with padding (10% inset)
   const padding = 10;
@@ -98,7 +100,7 @@ export default function EmotionQuadrant({
           <div
             className="absolute -inset-4 bg-primary/20 rounded-full"
             style={{
-              animation: "pulse-ring 3s cubic-bezier(0.4,0,0.6,1) infinite",
+              animation: isPlaying ? "pulse-ring 3s cubic-bezier(0.4,0,0.6,1) infinite" : "none",
             }}
           />
 

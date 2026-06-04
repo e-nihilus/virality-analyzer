@@ -77,13 +77,20 @@ export function useVideoUpload() {
         return;
       }
 
-      if (file.size > 200 * 1024 * 1024) {
-        setError("File too large. Max 200 MB.");
+      if (file.size > 1024 * 1024 * 1024) {
+        setError("File too large. Max 1 GB.");
         setStatus("error");
         return;
       }
 
       try {
+        // Clear previous analysis so the UI shows loading
+        useAnalysisStore.setState({
+          analysis: null,
+          source: "backend",
+          error: null,
+        });
+
         // Create a local preview URL for the video
         const localUrl = URL.createObjectURL(file);
         setVideoUrl(localUrl);

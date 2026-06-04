@@ -250,3 +250,21 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-outline);
 }
+
+/* Brain sphere region labels */
+.region-label {
+  color: #fff;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+.region-label span {
+  margin-left: 6px;
+  color: #4fc3f7;
+  font-weight: bold;
+}

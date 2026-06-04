@@ -10,7 +10,7 @@ from fastapi import UploadFile
 from ..core.paths import analysis_dir, result_path
 from ..schemas.analysis import AnalysisResult
 
-MAX_UPLOAD_SIZE_MB = 200
+MAX_UPLOAD_SIZE_MB = 1024
 MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".webm", ".avi", ".mkv"}

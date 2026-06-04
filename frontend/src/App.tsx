@@ -1,21 +1,83 @@
+import { lazy, Suspense, useCallback, useMemo, useRef } from "react";
 import { Sparkles, Loader2, WifiOff } from "lucide-react";
 
 import { useAnalysis } from "./hooks/useAnalysis";
 import { useAnalysisStore } from "./stores/analysisStore";
+import { useVideoUpload } from "./hooks/useVideoUpload";
 import SideNav from "./components/layout/SideNav";
 import TopAppBar from "./components/layout/TopAppBar";
 import BottomNav from "./components/layout/BottomNav";
 import VideoPlayer from "./components/video/VideoPlayer";
-import VideoUploadPanel from "./components/upload/VideoUploadPanel";
 import ViralityScore from "./components/intelligence/ViralityScore";
 import EmotionQuadrant from "./components/intelligence/EmotionQuadrant";
 import EngagementGraph from "./components/intelligence/EngagementGraph";
 import InsightsPanel from "./components/intelligence/InsightsPanel";
+import ClipList from "./components/intelligence/ClipList";
 import MetricCard from "./components/ui/MetricCard";
+
+const BrainSphere = lazy(() => import("./components/sphere/BrainSphere"));
+
+const DEFAULT_VIDEO = "/videos/default.mp4";
 
 export default function App() {
   const { analysis: data, loading, source } = useAnalysis();
   const videoUrl = useAnalysisStore((s) => s.videoUrl);
+  const playbackTime = useAnalysisStore((s) => s.playbackTime);
+  const isPlaying = useAnalysisStore((s) => s.isPlaying);
+  const setPlaybackTime = useAnalysisStore((s) => s.setPlaybackTime);
+  const setIsPlaying = useAnalysisStore((s) => s.setIsPlaying);
+  const { upload } = useVideoUpload();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const activeVideo = videoUrl ?? DEFAULT_VIDEO;
+
+  const handleTimeChange = useCallback(
+    (t: number) => {
+      if (useAnalysisStore.getState().isPlaying) {
+        setPlaybackTime(t);
+      }
+    },
+    [setPlaybackTime],
+  );
+
+  const handleSeek = useCallback(
+    (t: number) => setPlaybackTime(t),
+    [setPlaybackTime],
+  );
+
+  const handlePlayingChange = useCallback(
+    (p: boolean) => setIsPlaying(p),
+    [setIsPlaying],
+  );
+
+  const handleUploadClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) upload(file);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    },
+    [upload],
+  );
+
+  const peakEntry = data?.timeline?.find((e) => e.label === "Pattern disruption");
+  const currentTime = playbackTime;
+  const duration = data?.video?.duration_seconds ?? 45;
+
+  const closestEntry = useMemo(() => {
+    const tl = data?.timeline;
+    if (!tl?.length) return peakEntry;
+    let best = tl[0];
+    let bestDist = Math.abs(tl[0].time_seconds - currentTime);
+    for (let i = 1; i < tl.length; i++) {
+      const d = Math.abs(tl[i].time_seconds - currentTime);
+      if (d < bestDist) { bestDist = d; best = tl[i]; }
+    }
+    return best;
+  }, [data?.timeline, currentTime, peakEntry]);
 
   if (loading || !data) {
     return (
@@ -30,12 +92,17 @@ export default function App() {
     );
   }
 
-  const peakEntry = data.timeline?.find((e) => e.label === "Pattern disruption");
-  const currentTime = peakEntry?.time_seconds ?? 12;
-  const duration = data.video?.duration_seconds ?? 45;
-
   return (
     <div className="min-h-dvh bg-surface-container-lowest text-on-surface antialiased">
+      {/* Hidden file input for video upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".mp4,.mov,.webm,.avi,.mkv"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
       {/* Layout shell */}
       <SideNav />
       <TopAppBar />
@@ -63,22 +130,32 @@ export default function App() {
             timestamp={`T+00:${currentTime.toFixed(2)}`}
           />
 
-          {/* Mobile: Upload panel or Video player */}
+          {/* Brain Sphere */}
+          <div className="h-[350px] rounded-xl overflow-hidden bg-[#050816]">
+            <Suspense
+              fallback={
+                <div className="w-full h-full flex items-center justify-center">
+                  <Loader2 size={24} className="text-primary animate-spin" />
+                </div>
+              }
+            >
+              <BrainSphere analysis={data} currentTime={currentTime} isPlaying={isPlaying} />
+            </Suspense>
+          </div>
+
+          {/* Mobile: Video player (no own <video> — the desktop player drives state) */}
           <div className="lg:hidden">
-            {videoUrl ? (
-              <VideoPlayer src={videoUrl} currentTime={currentTime} duration={duration} />
-            ) : (
-              <VideoUploadPanel />
-            )}
+            <VideoPlayer currentTime={currentTime} duration={duration} onUploadClick={handleUploadClick} />
           </div>
 
           {/* Emotion Quadrant */}
           <EmotionQuadrant
-            valence={peakEntry?.valence}
-            arousal={peakEntry?.arousal}
+            valence={closestEntry?.valence}
+            arousal={closestEntry?.arousal}
             emotion={data.dominant_emotion}
-            intensity={peakEntry?.arousal}
+            intensity={closestEntry?.arousal}
             timestamp={`T+00:${currentTime.toFixed(2)}`}
+            isPlaying={isPlaying}
           />
 
           {/* Metric Cards */}
@@ -101,16 +178,16 @@ export default function App() {
 
           {/* AI Insights */}
           <InsightsPanel insights={data.insights ?? []} />
+
+          {/* Top Clips */}
+          {data.top_clips && data.top_clips.length > 0 && (
+            <ClipList clips={data.top_clips} analysisId={data.id} />
+          )}
         </section>
 
         {/* ── Right Column: Video + Engagement (desktop 55%) ── */}
         <section className="hidden lg:flex lg:w-[55%] flex-col bg-surface-dim">
-          {/* Upload panel or Video player */}
-          {videoUrl ? (
-            <VideoPlayer src={videoUrl} currentTime={currentTime} duration={duration} />
-          ) : (
-            <VideoUploadPanel className="flex-1 rounded-none border-0 min-h-[300px]" />
-          )}
+          <VideoPlayer src={activeVideo} currentTime={currentTime} duration={duration} onTimeChange={handleTimeChange} onSeek={handleSeek} onPlayingChange={handlePlayingChange} onUploadClick={handleUploadClick} />
 
           {/* Engagement Graph */}
           <div className="h-1/3 border-t border-outline-variant/10 bg-surface-container-lowest/80 backdrop-blur-sm overflow-hidden p-6">

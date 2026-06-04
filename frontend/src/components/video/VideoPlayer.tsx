@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from "react";
-import { Play, Pause, SkipForward, Volume2, VolumeX, Maximize, Sparkles } from "lucide-react";
+import { Play, Pause, SkipForward, Volume2, VolumeX, Maximize, Upload, Sparkles } from "lucide-react";
 import TimelineScrubber from "./TimelineScrubber";
 
 interface VideoPlayerProps {
@@ -7,6 +7,9 @@ interface VideoPlayerProps {
   currentTime?: number;
   duration?: number;
   onSeek?: (time: number) => void;
+  onTimeChange?: (time: number) => void;
+  onPlayingChange?: (playing: boolean) => void;
+  onUploadClick?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -20,11 +23,14 @@ export default function VideoPlayer({
   currentTime: externalTime = 12,
   duration: externalDuration = 45,
   onSeek,
+  onTimeChange,
+  onPlayingChange,
+  onUploadClick,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [currentTime, setCurrentTime] = useState(externalTime);
+  const [muted, setMuted] = useState(true);
+  const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(externalDuration);
 
   const hasVideo = !!src;
@@ -38,13 +44,22 @@ export default function VideoPlayer({
 
   const handleTimeUpdate = useCallback(() => {
     const v = videoRef.current;
-    if (v) setCurrentTime(v.currentTime);
-  }, []);
+    if (v && !v.paused) {
+      setCurrentTime(v.currentTime);
+      onTimeChange?.(v.currentTime);
+    }
+  }, [onTimeChange]);
 
   const handleLoadedMetadata = useCallback(() => {
     const v = videoRef.current;
-    if (v) setDuration(v.duration);
-  }, []);
+    if (v) {
+      setDuration(v.duration);
+      v.play().then(() => {
+        setPlaying(true);
+        onPlayingChange?.(true);
+      }).catch(() => {});
+    }
+  }, [onPlayingChange]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -52,11 +67,13 @@ export default function VideoPlayer({
     if (v.paused) {
       v.play();
       setPlaying(true);
+      onPlayingChange?.(true);
     } else {
       v.pause();
       setPlaying(false);
+      onPlayingChange?.(false);
     }
-  }, []);
+  }, [onPlayingChange]);
 
   const toggleMute = useCallback(() => {
     const v = videoRef.current;
@@ -66,7 +83,6 @@ export default function VideoPlayer({
   }, []);
 
   const progress = duration > 0 ? currentTime / duration : 0;
-  const peakPosition = 12 / 45;
 
   const handleSeek = useCallback(
     (p: number) => {
@@ -89,8 +105,9 @@ export default function VideoPlayer({
           className="absolute inset-0 w-full h-full object-contain"
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
-          onEnded={() => setPlaying(false)}
           playsInline
+          loop
+          muted
         />
       ) : (
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(37,99,235,0.15)_0%,transparent_70%)]" />
@@ -103,18 +120,26 @@ export default function VideoPlayer({
             MP4 | 30FPS
           </span>
         </div>
-        <button className="glass-panel rounded-md p-2 text-on-surface-variant hover:text-on-surface transition-colors">
-          <Maximize size={16} />
-        </button>
+        <div className="flex items-center gap-2">
+          {onUploadClick && (
+            <button
+              onClick={onUploadClick}
+              className="glass-panel rounded-md p-2 text-on-surface-variant hover:text-primary transition-colors"
+              title="Upload video"
+            >
+              <Upload size={16} />
+            </button>
+          )}
+          <button className="glass-panel rounded-md p-2 text-on-surface-variant hover:text-on-surface transition-colors">
+            <Maximize size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Bottom overlay with scrim */}
       <div className="absolute inset-x-0 bottom-0 scrim-bottom pt-16 pb-4 px-4 space-y-3 opacity-0 group-hover:opacity-100 transition-opacity">
         <TimelineScrubber
           progress={progress}
-          markers={[
-            { position: peakPosition, color: "var(--color-secondary)", label: "Virality Peak" },
-          ]}
           onSeek={handleSeek}
         />
 

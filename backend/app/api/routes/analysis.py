@@ -3,9 +3,12 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from ...ai_services.mock_analyzer import generate_mock_analysis
 from ...core.auth import get_current_user_id
+from ...core.paths import analysis_dir
+from ...processing.clip_exporter import export_clip, ffmpeg_available
 from ...schemas.analysis import (
     AnalysisCreateResponse,
     AnalysisResult,
@@ -75,3 +78,46 @@ def list_analyses(user_id: str | None = Depends(get_current_user_id)):
         )
         for r in results
     ]
+
+
+@router.post("/{analysis_id}/clips/{clip_index}/export")
+def export_clip_endpoint(analysis_id: str, clip_index: int):
+    """Export a clip from an analysis."""
+    result = analysis_service.get_analysis(analysis_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    if not result.top_clips or clip_index < 0 or clip_index >= len(result.top_clips):
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    source_video = storage_service.input_video_path(analysis_id)
+    if source_video is None:
+        raise HTTPException(status_code=404, detail="Source video not found")
+
+    clips_dir = analysis_dir(analysis_id) / "clips"
+    output = clips_dir / f"clip_{clip_index}.mp4"
+
+    if not ffmpeg_available():
+        raise HTTPException(status_code=500, detail="FFmpeg not found on server")
+
+    clip = result.top_clips[clip_index]
+    try:
+        export_result = export_clip(source_video, output, clip.start_seconds, clip.end_seconds)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "status": "ok",
+        "clip_index": clip_index,
+        "duration": export_result.duration_seconds,
+        "size_bytes": export_result.size_bytes,
+    }
+
+
+@router.get("/{analysis_id}/clips/{clip_index}/download")
+def download_clip(analysis_id: str, clip_index: int):
+    """Download an exported clip."""
+    clip_path = analysis_dir(analysis_id) / "clips" / f"clip_{clip_index}.mp4"
+    if not clip_path.exists():
+        raise HTTPException(status_code=404, detail="Clip not exported yet")
+    return FileResponse(clip_path, media_type="video/mp4", filename=f"clip_{clip_index}.mp4")
