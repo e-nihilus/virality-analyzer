@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from ..processing.audio_extractor import extract_audio_wav
 from ..processing.clip_ranker import rank_clips
 from ..processing.ffmpeg_probe import probe_video
 from ..processing.frame_extractor import (
@@ -13,11 +14,17 @@ from ..processing.frame_extractor import (
     extract_frames,
 )
 from ..processing.timeline_builder import build_timeline
+from .audio_analyzer import analyze_audio, librosa_available
 from .explanation_engine import generate_insights
+from .speech_analyzer import transcribe_video, whisper_available
+from .text_hook_analyzer import detect_hooks, generate_hook_insights
 from ..schemas.analysis import (
     AnalysisResult,
     AnalysisStatus,
+    TextHook as TextHookSchema,
     TimelineEntry,
+    Transcript,
+    TranscriptSegment as TranscriptSegmentSchema,
     VideoMeta,
 )
 
@@ -106,8 +113,30 @@ def analyze_video(
             video=video_meta,
         )
 
-    # Step 3: Build timeline
-    timeline = build_timeline(duration, frame_diffs, brightness, SAMPLE_INTERVAL)
+    # Step 2b: Optional audio feature extraction
+    audio_energy = None
+    audio_silence = None
+    audio_energy_change = None
+    if librosa_available():
+        logger.info("librosa available — extracting audio features for %s", analysis_id)
+        wav_path = extract_audio_wav(video_path, output_dir)
+        if wav_path:
+            audio_features = analyze_audio(wav_path, interval_seconds=SAMPLE_INTERVAL)
+            if audio_features:
+                audio_energy = audio_features.rms_energy
+                audio_silence = audio_features.silence_mask
+                audio_energy_change = audio_features.energy_change
+                logger.info("Audio features extracted: %d frames", len(audio_energy))
+    else:
+        logger.debug("librosa not available — skipping audio analysis")
+
+    # Step 3: Build timeline (with optional audio fusion)
+    timeline = build_timeline(
+        duration, frame_diffs, brightness, SAMPLE_INTERVAL,
+        audio_energy=audio_energy,
+        audio_silence=audio_silence,
+        audio_energy_change=audio_energy_change,
+    )
 
     # Step 4: Rank clips
     top_clips = rank_clips(timeline, max_clips=3)
@@ -134,6 +163,36 @@ def analyze_video(
         dominant_emotion=dominant_emotion,
     )
 
+    # Step 7: Optional speech transcription + text hook detection
+    transcript_data: Transcript | None = None
+    if whisper_available():
+        logger.info("Whisper available — transcribing audio for %s", analysis_id)
+        tr = transcribe_video(str(video_file), output_dir)
+        if tr and tr.segments:
+            hooks = detect_hooks(tr.segments)
+            hook_insights = generate_hook_insights(hooks, duration)
+            insights.extend(hook_insights)
+
+            transcript_data = Transcript(
+                segments=[
+                    TranscriptSegmentSchema(start=s.start, end=s.end, text=s.text)
+                    for s in tr.segments
+                ],
+                full_text=tr.full_text,
+                hooks=[
+                    TextHookSchema(
+                        text=h.text,
+                        hook_type=h.hook_type,
+                        timestamp=h.timestamp,
+                        confidence=h.confidence,
+                    )
+                    for h in hooks
+                ],
+            )
+            logger.info("Transcription complete: %d segments, %d hooks", len(tr.segments), len(hooks))
+    else:
+        logger.debug("Whisper not available — skipping transcription")
+
     return AnalysisResult(
         id=analysis_id,
         status=AnalysisStatus.completed,
@@ -146,4 +205,5 @@ def analyze_video(
         timeline=timeline,
         top_clips=top_clips,
         insights=insights,
+        transcript=transcript_data,
     )

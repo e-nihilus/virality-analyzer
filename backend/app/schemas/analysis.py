@@ -52,6 +52,25 @@ class Insight(BaseModel):
     action: Optional[str] = None
 
 
+class TranscriptSegment(BaseModel):
+    start: float
+    end: float
+    text: str
+
+
+class TextHook(BaseModel):
+    text: str
+    hook_type: str
+    timestamp: float
+    confidence: float = Field(ge=0, le=1)
+
+
+class Transcript(BaseModel):
+    segments: list[TranscriptSegment] = Field(default_factory=list)
+    full_text: str = ""
+    hooks: list[TextHook] = Field(default_factory=list)
+
+
 class AnalysisResult(BaseModel):
     id: str
     user_id: Optional[str] = None
@@ -65,6 +84,7 @@ class AnalysisResult(BaseModel):
     timeline: Optional[list[TimelineEntry]] = None
     top_clips: Optional[list[TopClip]] = None
     insights: Optional[list[Insight]] = None
+    transcript: Optional[Transcript] = None
 
 
 class AnalysisSummary(BaseModel):

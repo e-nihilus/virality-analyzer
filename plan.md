@@ -925,12 +925,6 @@ Opción CPU más práctica:
 pip install faster-whisper
 ```
 
-Alternativa:
-
-```bash
-pip install openai-whisper
-```
-
 ### Amp puede hacer automáticamente
 
 - Implementar adapter desactivado por defecto con feature flag.
@@ -940,7 +934,7 @@ pip install openai-whisper
 ### HUMAN ACTION REQUIRED
 
 - Instalar dependencias de Whisper y aceptar descarga de modelos.
-- Confirmar modelo inicial. Recomendado local: `tiny` o `base`.
+- Confirmar modelo inicial. Recomendado local: `small`.
 - Si se desea GPU, configurar CUDA fuera del workspace.
 
 ### Criterios de finalización

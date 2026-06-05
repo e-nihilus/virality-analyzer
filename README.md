@@ -6,7 +6,7 @@ Part of [AureaSuite](https://www.aureasuite.ai/) — designed to integrate as a 
 
 ## Current Status
 
-**Phases completed: 1–9** of 15. The project is a functional MVP with real video analysis.
+**Phases completed: 1–13** of 15. The project is a functional MVP with real video analysis, optional speech/audio intelligence, and queue-based processing.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -19,8 +19,12 @@ Part of [AureaSuite](https://www.aureasuite.ai/) — designed to integrate as a 
 | 7 | Real video pipeline (FFmpeg + OpenCV) | ✅ |
 | 8 | Background job lifecycle + polling | ✅ |
 | 9 | Explanation engine + actionable insights | ✅ |
-| 10 | Clip export with FFmpeg | ⬚ |
-| 11–15 | Advanced features, IA multimodal, tests | ⬚ |
+| 10 | Clip export with FFmpeg | ✅ |
+| 11 | Speech/NLP optional (Whisper) | ✅ |
+| 12 | Audio features optional (librosa) | ✅ |
+| 13 | Real queue & external workers (RQ/Redis) | ✅ |
+| 14 | Advanced multimodal AI adapters | ⬚ |
+| 15 | Tests, quality & local packaging | ⬚ |
 
 ## Features
 
@@ -28,12 +32,15 @@ Part of [AureaSuite](https://www.aureasuite.ai/) — designed to integrate as a 
 - **Video upload** — drag-and-drop MP4/MOV/WebM/AVI/MKV (max 200 MB), validated client and server side
 - **Real video analysis** — frame sampling with OpenCV, motion detection, brightness analysis, heuristic scoring
 - **FFmpeg integration** — optional metadata extraction via `ffprobe` (falls back to OpenCV if unavailable)
-- **Background processing** — analysis runs in a background thread; the API responds immediately and the frontend polls for progress
-- **Unified timeline** — per-second scores for virality, arousal, valence, and retention with auto-detected labels (hook, pattern disruption, retention dip, motion spike)
+- **Audio analysis** *(optional)* — RMS energy, silence detection, and energy changes via librosa; fused into timeline scores for better arousal/retention accuracy
+- **Speech transcription** *(optional)* — faster-whisper integration for automatic transcription and verbal hook detection (curiosity gap, urgency, conflict, questions, commands, surprise)
+- **Background processing** — analysis dispatched via RQ/Redis queue or in-process thread fallback; the API responds immediately and the frontend polls for progress
+- **Unified timeline** — per-second scores for virality, arousal, valence, and retention with auto-detected labels (hook, pattern disruption, retention dip, motion spike, silence gap, audio spike)
 - **Clip ranking** — automatic detection of top clip candidates from virality peaks
-- **Explanation engine** — 8 rule-based insight generators producing actionable recommendations with timestamps
+- **Explanation engine** — 8+ rule-based insight generators producing actionable recommendations with timestamps, extended with verbal hook insights when transcription is available
+- **Transcript panel** — frontend component showing timestamped transcript segments with hook badges, highlighted in sync with video playback
 - **Mock fallback** — full UI works offline with synthetic data when backend is unavailable
-- **AureaSuite-ready** — auth placeholders, namespaced API routes, configurable storage backend
+- **AureaSuite-ready** — auth placeholders, namespaced API routes, configurable storage and queue backends
 
 ## Architecture
 
@@ -44,9 +51,9 @@ virality-analizer/
 │  └─ app/
 │     ├─ api/routes/  REST endpoints
 │     ├─ schemas/     Pydantic models (source of truth)
-│     ├─ services/    Orchestration layer
-│     ├─ processing/  FFmpeg probe, frame extraction, timeline, clip ranking
-│     ├─ ai_services/ Mock analyzer, heuristic analyzer, explanation engine
+│     ├─ services/    Orchestration, storage, queue dispatch
+│     ├─ processing/  FFmpeg probe, frame extraction, audio extraction, timeline, clip ranking
+│     ├─ ai_services/ Heuristic, speech (Whisper), audio (librosa), text hook, explanation engine
 │     ├─ workers/     Background analysis jobs
 │     └─ core/        Config, paths, auth placeholder
 ├─ shared/            JSON schemas + TypeScript types
@@ -58,8 +65,9 @@ virality-analizer/
 
 - **Node.js** 20+
 - **Python** 3.11+
-- **FFmpeg** (recommended, for accurate metadata — [download](https://www.gyan.dev/ffmpeg/builds/))
+- **FFmpeg** (recommended, for accurate metadata and audio extraction)
 - **Git**
+- **Redis** *(optional, for RQ queue workers)*
 
 ## Quick Start
 
@@ -83,8 +91,14 @@ source .venv/Scripts/activate
 # macOS/Linux
 source .venv/bin/activate
 
-# Install dependencies
+# Install core dependencies
 pip install -e backend
+
+# Optional extras (install any combination)
+pip install -e "backend[audio]"       # librosa + soundfile (audio analysis)
+pip install -e "backend[speech]"      # faster-whisper (transcription)
+pip install -e "backend[queue]"       # redis + rq (queue workers)
+pip install -e "backend[all]"         # all of the above
 
 # Start the server (auto-reload)
 uvicorn app.main:app --reload --app-dir backend
@@ -142,14 +156,16 @@ The frontend polls every 1.5 seconds until `completed` or `failed`.
 
 ## Analysis Pipeline
 
-When a video is uploaded, the backend runs this pipeline in a background thread:
+When a video is uploaded, the backend dispatches a job (via RQ or thread fallback):
 
 1. **Probe** — `ffprobe` extracts duration, FPS, resolution, codecs (falls back to OpenCV)
 2. **Frame extraction** — samples one frame per second, saved as JPEG in `uploads/<id>/frames/`
 3. **Visual signals** — computes inter-frame differences (motion) and brightness per sample
-4. **Timeline** — normalizes and smooths signals into per-second virality/arousal/valence/retention scores
-5. **Clip ranking** — detects virality peaks, expands windows, ranks top 3 clip candidates
-6. **Explanation engine** — generates insights from 8 rule categories with timestamps and actionable recommendations
+4. **Audio extraction** *(optional)* — FFmpeg exports mono WAV; librosa computes RMS energy, silence gaps, and energy changes per second
+5. **Timeline** — normalizes and smooths visual + audio signals into per-second virality/arousal/valence/retention scores
+6. **Clip ranking** — detects virality peaks, expands windows, ranks top 3 clip candidates
+7. **Speech transcription** *(optional)* — faster-whisper transcribes audio; text hook analyzer detects verbal hooks (curiosity gap, urgency, conflict, etc.)
+8. **Explanation engine** — generates insights from 8+ rule categories with timestamps and actionable recommendations
 
 ### Insight categories
 
@@ -163,6 +179,7 @@ When a video is uploaded, the backend runs this pipeline in a background thread:
 | Clip reasoning | Why each clip was selected |
 | Overall score | Global score explanation |
 | Ending strength | Loop potential & closing impact |
+| Verbal hooks *(optional)* | Curiosity gap, urgency, conflict, questions in speech |
 
 ## Environment Variables
 
@@ -174,6 +191,11 @@ All prefixed with `AUREA_`:
 | `AUREA_CORS_ORIGINS` | `localhost:5173` | Allowed CORS origins |
 | `AUREA_AUTH_ENABLED` | `false` | Enable Clerk JWT validation |
 | `AUREA_STORAGE_BACKEND` | `local` | `local` / `s3` |
+| `AUREA_QUEUE_BACKEND` | `thread` | `thread` (in-process) / `redis` (RQ workers) |
+| `AUREA_REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL |
+| `AUREA_WHISPER_ENABLED` | `false` | Enable speech transcription via faster-whisper |
+| `AUREA_WHISPER_MODEL` | `small` | Whisper model size (`tiny` / `base` / `small` / `medium` / `large`) |
+| `AUREA_AUDIO_ENABLED` | `true` | Enable audio feature analysis via librosa |
 | `VITE_API_BASE_URL` | (empty) | Backend URL for frontend |
 
 ## Key Commands
@@ -189,6 +211,13 @@ npm run lint         # ESLint
 # ── Backend ──
 uvicorn app.main:app --reload --app-dir backend   # Dev server
 python -m pytest backend/tests                      # Run tests (when available)
+
+# ── Quick start (both) ──
+./start.sh                                          # Launch backend + frontend together
+
+# ── Redis queue (optional) ──
+docker compose up redis                             # Start Redis via Docker
+AUREA_QUEUE_BACKEND=redis python -m backend.run_worker  # Start RQ worker
 
 # ── FFmpeg ──
 ffmpeg -version                                     # Verify installation

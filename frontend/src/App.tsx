@@ -12,6 +12,7 @@ import ViralityScore from "./components/intelligence/ViralityScore";
 import EmotionQuadrant from "./components/intelligence/EmotionQuadrant";
 import EngagementGraph from "./components/intelligence/EngagementGraph";
 import InsightsPanel from "./components/intelligence/InsightsPanel";
+import TranscriptPanel from "./components/intelligence/TranscriptPanel";
 import ClipList from "./components/intelligence/ClipList";
 import MetricCard from "./components/ui/MetricCard";
 
@@ -178,6 +179,14 @@ export default function App() {
 
           {/* AI Insights */}
           <InsightsPanel insights={data.insights ?? []} />
+
+          {/* Transcript & Verbal Hooks (only when available) */}
+          {data.transcript && data.transcript.segments.length > 0 && (
+            <TranscriptPanel
+              transcript={data.transcript}
+              currentTime={currentTime}
+            />
+          )}
 
           {/* Top Clips */}
           {data.top_clips && data.top_clips.length > 0 && (

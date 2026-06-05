@@ -13,6 +13,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+audio = [
+    "librosa>=0.10",
+    "soundfile>=0.12",
+]
+speech = [
+    "faster-whisper>=1.0",
+]
+queue = [
+    "redis>=5.0",
+    "rq>=1.16",
+]
+all = [
+    "aurea-backend[audio,speech,queue]",
+]
 dev = [
     "pytest>=8.0",
     "httpx>=0.27",

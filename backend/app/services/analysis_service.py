@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-import threading
 
 from ..ai_services.mock_analyzer import generate_mock_analysis
 from ..schemas.analysis import AnalysisResult, AnalysisStatus, VideoMeta
 from ..workers.analysis_worker import run_analysis
 from . import storage_service
+from .queue_service import enqueue_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -48,25 +48,9 @@ def create_pending(
 
 
 def start_analysis_background(analysis_id: str, *, user_id: str | None = None) -> None:
-    """Launch analysis in a background thread so the API responds immediately."""
-
-    def _worker() -> None:
-        try:
-            result = run_analysis(analysis_id, user_id=user_id)
-            _store[analysis_id] = result
-        except Exception:
-            logger.exception("Background analysis failed for %s", analysis_id)
-            failed = AnalysisResult(
-                id=analysis_id,
-                user_id=user_id,
-                status=AnalysisStatus.failed,
-                progress=0.0,
-            )
-            _store[analysis_id] = failed
-            storage_service.save_result(analysis_id, failed)
-
-    thread = threading.Thread(target=_worker, daemon=True, name=f"analysis-{analysis_id}")
-    thread.start()
+    """Dispatch analysis via the configured queue backend (RQ or thread)."""
+    job_ref = enqueue_analysis(analysis_id, user_id=user_id)
+    logger.info("Dispatched analysis %s → %s", analysis_id, job_ref)
 
 
 def run_real_analysis(analysis_id: str, *, user_id: str | None = None) -> AnalysisResult:

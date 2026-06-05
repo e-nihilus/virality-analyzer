@@ -36,6 +36,25 @@ export interface Insight {
   action?: string;
 }
 
+export interface TranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface TextHook {
+  text: string;
+  hook_type: string;
+  timestamp: number;
+  confidence: number;
+}
+
+export interface Transcript {
+  segments: TranscriptSegment[];
+  full_text: string;
+  hooks: TextHook[];
+}
+
 export interface AnalysisResult {
   id: string;
   user_id?: string;
@@ -49,4 +68,5 @@ export interface AnalysisResult {
   timeline?: TimelineEntry[];
   top_clips?: TopClip[];
   insights?: Insight[];
+  transcript?: Transcript;
 }

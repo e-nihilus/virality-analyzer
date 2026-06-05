@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     # Future: auth provider integration (Clerk JWT validation)
     auth_enabled: bool = False
 
+    # Queue backend: "thread" for in-process (default), "redis" for RQ workers
+    queue_backend: str = "thread"
+
+    # Redis connection URL (used when queue_backend == "redis")
+    redis_url: str = "redis://localhost:6379/0"
+
     model_config = {"env_prefix": "AUREA_"}
 
 

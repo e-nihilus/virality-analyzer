@@ -128,8 +128,14 @@ export default function ClipList({ clips, analysisId }: ClipListProps) {
 
           <button
             type="button"
+            disabled={state !== "exported"}
             onClick={() => handleDownload(index)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-body-md bg-surface-container-highest text-on-surface hover:bg-outline-variant/20 transition-colors"
+            className={clsx(
+              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-body-md transition-colors",
+              state === "exported"
+                ? "bg-surface-container-highest text-on-surface hover:bg-outline-variant/20"
+                : "bg-surface-container-highest text-on-surface/30 cursor-not-allowed",
+            )}
           >
             <Download size={14} />
             Download

@@ -5,6 +5,14 @@ echo "[Backend]  http://127.0.0.1:8000/docs"
 echo "[Frontend] http://localhost:5173"
 echo ""
 
+# Activate virtual environment if it exists
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+    echo "[venv] Activated .venv"
+else
+    echo "[venv] No .venv found — using system Python"
+fi
+
 # Start backend in background
 python -m uvicorn app.main:app --reload --app-dir backend &
 BACK_PID=$!
