@@ -1,27 +1,9 @@
-import { Suspense, useEffect } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
-import { EffectComposer, Bloom } from "@react-three/postprocessing";
+import { useMemo } from "react";
 
 import type { AnalysisResult } from "../../types/analysis";
 import { analysisToSphereData } from "./sphereUtils";
-import BrainCore from "./BrainCore";
-import AnalysisRegion from "./AnalysisRegion";
-import NeuralConnections from "./NeuralConnections";
-import NeuralParticles from "./NeuralParticles";
-
-/** Stops/starts the THREE clock so elapsed time doesn't accumulate during pause. */
-function ClockController({ isPlaying }: { isPlaying: boolean }) {
-  const clock = useThree((s) => s.clock);
-  useEffect(() => {
-    if (isPlaying) {
-      clock.start();
-    } else {
-      clock.stop();
-    }
-  }, [isPlaying, clock]);
-  return null;
-}
+import type { MetricState } from "./metrics";
+import MetricsCanvas from "./MetricsCanvas";
 
 interface BrainSphereProps {
   analysis: AnalysisResult;
@@ -29,88 +11,38 @@ interface BrainSphereProps {
   isPlaying?: boolean;
 }
 
+/**
+ * Data adapter around the shader sphere (MetricsCanvas).
+ *
+ * Keeps the original BrainSphere API (analysis + currentTime + isPlaying) so the
+ * rest of the app is untouched, while feeding the new volumetric shader sphere
+ * with live, normalized metric values derived from the analysis timeline.
+ */
 export default function BrainSphere({
   analysis,
   currentTime,
   isPlaying = true,
 }: BrainSphereProps) {
-  const sphereData = analysisToSphereData(analysis, currentTime);
+  const metrics = useMemo<MetricState>(() => {
+    const { regions } = analysisToSphereData(analysis, currentTime);
+    // regions are scored 0..1; the shader sphere expects a 0..100 scale.
+    const pct = (id: string) =>
+      Math.round((regions.find((r) => r.id === id)?.intensity ?? 0.5) * 100);
+
+    return {
+      valence: pct("valence"),
+      virality: pct("virality"),
+      arousal: pct("arousal"),
+      pacing: pct("pacing"),
+      retention: pct("retention"),
+      emotion: pct("emotion"),
+      hook: pct("hook"),
+    };
+  }, [analysis, currentTime]);
 
   return (
     <div className="relative w-full h-full min-h-[300px]">
-      <Canvas
-        camera={{ position: [0, 0, 6.5], fov: 55 }}
-        dpr={[1, 2]}
-        frameloop="always"
-        style={{ background: "transparent" }}
-      >
-        <ClockController isPlaying={isPlaying} />
-        <color attach="background" args={["#050816"]} />
-        <fog attach="fog" args={["#050816", 8, 20]} />
-
-        <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} intensity={1.2} />
-        <pointLight position={[-10, -10, -5]} intensity={0.6} color="#4f8cff" />
-        <pointLight position={[0, 0, 6]} intensity={0.4} color="#ff6b9d" />
-
-        <Suspense fallback={null}>
-          <Stars
-            radius={50}
-            depth={50}
-            count={1500}
-            factor={4}
-            fade
-            speed={0.5}
-          />
-
-          <BrainCore
-            engagement={sphereData.engagement}
-            emotion={sphereData.emotion}
-            cognitiveLoad={sphereData.cognitiveLoad}
-            isPlaying={isPlaying}
-          />
-
-          {sphereData.regions.map((region) => (
-            <AnalysisRegion
-              key={region.id}
-              name={region.name}
-              intensity={region.intensity}
-              position={region.position}
-              isPlaying={isPlaying}
-            />
-          ))}
-
-          <NeuralConnections regions={sphereData.regions} isPlaying={isPlaying} />
-          <NeuralParticles engagement={sphereData.engagement} count={400} isPlaying={isPlaying} />
-
-          <EffectComposer>
-            <Bloom
-              intensity={1.4}
-              luminanceThreshold={0.15}
-              luminanceSmoothing={0.6}
-              mipmapBlur
-            />
-          </EffectComposer>
-        </Suspense>
-
-        <OrbitControls
-          enablePan={false}
-          minDistance={3.5}
-          maxDistance={12}
-          autoRotate={isPlaying}
-          autoRotateSpeed={0.6}
-        />
-      </Canvas>
-
-      {/* Title overlay */}
-      <div className="absolute top-3 left-4 pointer-events-none">
-        <p className="text-label-sm uppercase tracking-widest text-primary">
-          Neural Analysis
-        </p>
-        <p className="text-mono-metric text-on-surface-variant/50 mt-0.5">
-          Real-time metric activation
-        </p>
-      </div>
+      <MetricsCanvas metrics={metrics} isPlaying={isPlaying} />
     </div>
   );
 }

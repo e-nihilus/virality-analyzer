@@ -1,0 +1,6 @@
+{
+  "name": "Metrics Shader Sphere",
+  "description": "An interactive, elegant 3D sphere visualization powered by advanced WebGL GLSL shaders representing video and creator retention metrics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

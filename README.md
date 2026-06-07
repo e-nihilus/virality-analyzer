@@ -213,7 +213,7 @@ uvicorn app.main:app --reload --app-dir backend   # Dev server
 python -m pytest backend/tests                      # Run tests (when available)
 
 # ── Quick start (both) ──
-./start.sh                                          # Launch backend + frontend together
+bash start.sh                                          # Launch backend + frontend together
 
 # ── Redis queue (optional) ──
 docker compose up redis                             # Start Redis via Docker
