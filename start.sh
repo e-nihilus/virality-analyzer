@@ -6,7 +6,9 @@ echo "[Frontend] http://localhost:5173"
 echo ""
 
 # Activate virtual environment if it exists
-if [ -f ".venv/bin/activate" ]; then
+if [ -f ".venv/Scripts/activate" ]; then
+    source .venv/Scripts/activate
+elif [ -f ".venv/bin/activate" ]; then
     source .venv/bin/activate
     echo "[venv] Activated .venv"
 else

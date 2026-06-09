@@ -228,11 +228,11 @@ vec3 traceEnergy(vec3 origin, vec3 dir, vec2 limits) {
         vec3 currentGradient = blendedColor / totalWeight;
         
         // Scale emission zone by the active metric intensity locally (substantially boosted for vividness)
-        float activeScalar = mix(0.4, 2.5, localIntensity);
-        vec3 emission = currentGradient * (fieldVal * 2.8 + vSq * 2.2) * activeScalar;
+        float activeScalar = mix(0.6, 3.5, localIntensity);
+        vec3 emission = currentGradient * (fieldVal * 4.0 + vSq * 3.0) * activeScalar;
         
         // Accumulate color
-        finalEnergy = 0.99 * finalEnergy + (0.08 * uDensity) * emission;
+        finalEnergy = 0.99 * finalEnergy + (0.10 * uDensity) * emission;
     }
     
     return finalEnergy;
@@ -270,7 +270,7 @@ void main() {
     float edgeAA = smoothstep(0.0, 0.05, facingRatio);
     
     // Exponential exposure tonemapping for rich HDR response and ultra-vivid peaks
-    vec3 finalColor = 1.0 - exp(-volumeColor * 2.2);
+    vec3 finalColor = 1.0 - exp(-volumeColor * 3.0);
     
     // Apply the anti-aliasing fade
     finalColor *= edgeAA;
@@ -597,7 +597,7 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
     // Create Atmosphere Halo Mesh and link as child to auto spin/rotate
     const atmosphereUniforms = {
       uColor: { value: new THREE.Color("#00b3ff") },
-      uGlow: { value: 0.15 },
+      uGlow: { value: 0.25 },
       uLevel: { value: 1.0 }
     };
     const atmosphereMaterial = new THREE.ShaderMaterial({
@@ -709,7 +709,7 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
     particlesMatRef.current = particlesMaterial;
 
     const particles = new THREE.Points(particleGeometry, particlesMaterial);
-    scene.add(particles);
+    // Particles disabled — keep reference for cleanup
     particlesRef.current = particles;
 
     // Resize observer
@@ -931,9 +931,6 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
           // Project 3D vector to Normalized Device Coordinates (NDC)
           const projectedVec = worldPos.clone().project(cameraRef.current!);
           
-          // Determine if the pole is on the facing surface of the sphere (scaled to 2.0 radius boundary)
-          const isFacing = worldPos.z > -0.44;
-          
           // Convert NDC (-1 to 1) to screen space coordinates relative to container
           const x = (projectedVec.x * 0.5 + 0.5) * width;
           const y = (-projectedVec.y * 0.5 + 0.5) * height;
@@ -944,7 +941,7 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
           
           if (labelEl || pathEl || dotEl) {
             const activeVal = liveMetrics[key as keyof MetricState] || 0;
-            const opacityVal = isFacing ? (activeVal > 15 ? 1.0 : 0.35) : 0.08;
+            const opacityVal = activeVal > 15 ? 1.0 : 0.45;
             const showHUD = activeVal > 5;
             
             // Assigned in every branch below before first read.
@@ -953,20 +950,20 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
             const isLeft = key === "valence" || key === "pacing" || key === "retention";
             
             if (isLeft) {
-              bx = x - 35;
-              by = y - 22;
-              lx = x - 105;
-              ly = y - 22;
+              bx = x - 40;
+              by = y - 24;
+              lx = x - 130;
+              ly = y - 24;
             } else if (key === "virality" || key === "arousal" || key === "emotion") {
-              bx = x + 35;
-              by = y - 22;
-              lx = x + 105;
-              ly = y - 22;
+              bx = x + 40;
+              by = y - 24;
+              lx = x + 130;
+              ly = y - 24;
             } else { // hook (bottom)
               bx = x;
-              by = y + 35;
-              lx = x + 55;
-              ly = y + 35;
+              by = y + 40;
+              lx = x + 70;
+              ly = y + 40;
             }
             
             bx = Math.max(12, Math.min(width - 12, bx));
@@ -1041,10 +1038,7 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
         <span>FRMT // 60FPS ATTACHED</span>
       </div>
 
-      <div className="absolute bottom-4 left-6 pointer-events-none font-mono text-[9px] text-zinc-500 tracking-widest hidden sm:flex flex-col gap-0.5">
-        <span id="hud-xrad">X-RAD // 0.000 RAD</span>
-        <span id="hud-yrad">Y-RAD // 0.000 RAD</span>
-      </div>
+
 
       {/* Dynamic 3D projected HUD callouts matching the design illustration perfectly */}
       <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
@@ -1113,7 +1107,7 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
             <div
               key={m.key}
               id={`hud-label-${m.key}`}
-              className="absolute -top-4.5 pointer-events-none transition-all duration-100 ease-out font-mono text-[10px]"
+              className="absolute -top-4.5 pointer-events-none transition-all duration-100 ease-out font-mono text-[14px]"
               style={{
                 opacity: 0,
                 color: cfg?.color || "#fff",
@@ -1126,9 +1120,9 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
                   isLeft ? "-translate-x-full pr-2" : "pl-2"
                 } transition-colors duration-200 hover:bg-black/90`}
               >
-                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg?.color }} />
-                <span className="text-white font-medium tracking-wider uppercase text-[9px]">{m.name}</span>
-                <span className="opacity-80 px-1 font-bold text-white bg-white/10 rounded px-1 text-[8px] hud-val-num">--%</span>
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cfg?.color }} />
+                <span className="text-white font-medium tracking-wider uppercase text-[12px]">{m.name}</span>
+                <span className="opacity-80 px-1.5 font-bold text-white bg-white/10 rounded px-1.5 text-[11px] hud-val-num">--%</span>
               </div>
             </div>
           );
@@ -1145,7 +1139,7 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
       ) : (
         <div
           ref={containerRef}
-          className="w-full h-full cursor-grab active:cursor-grabbing"
+          className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing z-0"
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
@@ -1158,14 +1152,6 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
 
       {/* Compact, glossy floating utility controls HUD */}
       <div className="absolute bottom-4 right-4 flex items-center bg-white/[0.03] backdrop-blur-md rounded-xl border border-white/10 p-1 gap-1 shadow-lg pointer-events-auto">
-        <button
-          onClick={() => setAutoRotate(!autoRotate)}
-          className={`p-1.5 rounded-lg transition ${autoRotate ? "text-[#00F2FF] bg-white/5" : "text-zinc-500 hover:text-zinc-300"}`}
-          title={autoRotate ? "Pausar Rotación Automática" : "Iniciar Rotación Automática"}
-        >
-          <RotateCcw className={`w-3.5 h-3.5 ${autoRotate ? "animate-[spin_20s_linear_infinite]" : ""}`} />
-        </button>
-        <div className="w-[1px] h-4 bg-white/10 mx-0.5" />
         <button
           onClick={handleZoomIn}
           className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 transition"
@@ -1189,11 +1175,6 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
         </button>
       </div>
 
-      {/* Floating hints */}
-      <div className="absolute bottom-16 left-6 pointer-events-none hidden md:flex items-center gap-2 text-[10px] text-zinc-500 font-mono">
-        <Move className="w-3 h-3 text-zinc-400" />
-        <span>Arrastra con el ratón para orbitar o explorar el shader</span>
-      </div>
     </div>
   );
 }
