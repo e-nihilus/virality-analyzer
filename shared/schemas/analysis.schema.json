@@ -22,6 +22,7 @@
     "overall_virality_score": { "type": "number", "minimum": 0, "maximum": 1 },
     "retention_score": { "type": "number", "minimum": 0, "maximum": 1 },
     "rewatch_factor": { "type": "number" },
+    "action_recognition_score": { "type": "number", "minimum": 0, "maximum": 1 },
     "dominant_emotion": { "type": "string" },
     "timeline": {
       "type": "array",

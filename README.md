@@ -196,6 +196,12 @@ All prefixed with `AUREA_`:
 | `AUREA_WHISPER_ENABLED` | `false` | Enable speech transcription via faster-whisper |
 | `AUREA_WHISPER_MODEL` | `small` | Whisper model size (`tiny` / `base` / `small` / `medium` / `large`) |
 | `AUREA_AUDIO_ENABLED` | `true` | Enable audio feature analysis via librosa |
+| `AUREA_VISUAL_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `yolo` (YOLO fallback to heuristic if dependency missing) |
+| `AUREA_EMOTION_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `deepface` (DeepFace fallback to heuristic if dependency missing) |
+| `AUREA_ENABLE_TEMPORAL_ANALYSIS` | `false` | Enable temporal analysis stage (disabled by default) |
+| `AUREA_TEMPORAL_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `videomae` (VideoMAE fallback to heuristic if dependency missing) |
+| `AUREA_EXPLANATION_PROVIDER` | `heuristic` | `heuristic` / `qwen` (Qwen used only for explanations, never scoring) |
+| `AUREA_EXPLANATION_CACHE_ENABLED` | `true` | Enable in-memory explanation cache |
 | `VITE_API_BASE_URL` | (empty) | Backend URL for frontend |
 
 ## Key Commands

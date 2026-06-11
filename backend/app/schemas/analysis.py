@@ -80,6 +80,7 @@ class AnalysisResult(BaseModel):
     overall_virality_score: Optional[float] = Field(None, ge=0, le=1)
     retention_score: Optional[float] = Field(None, ge=0, le=1)
     rewatch_factor: Optional[float] = None
+    action_recognition_score: Optional[float] = Field(None, ge=0, le=1)
     dominant_emotion: Optional[str] = None
     timeline: Optional[list[TimelineEntry]] = None
     top_clips: Optional[list[TopClip]] = None

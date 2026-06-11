@@ -1,0 +1,1 @@
+Así, si algo falla, sabes exactamente en qué bloque ocurrió y el fallback protege la app.

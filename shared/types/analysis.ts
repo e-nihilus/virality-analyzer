@@ -41,6 +41,7 @@ export interface AnalysisResult {
   overall_virality_score?: number;
   retention_score?: number;
   rewatch_factor?: number;
+  action_recognition_score?: number;
   dominant_emotion?: string;
   timeline?: TimelineEntry[];
   top_clips?: TopClip[];

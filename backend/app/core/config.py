@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     # Redis connection URL (used when queue_backend == "redis")
     redis_url: str = "redis://localhost:6379/0"
 
+    # Phase 14: model-adapter provider flags (heuristic defaults)
+    visual_analyzer_provider: str = "heuristic"  # heuristic | yolo
+    emotion_analyzer_provider: str = "heuristic"  # heuristic | deepface
+    enable_temporal_analysis: bool = False
+    temporal_analyzer_provider: str = "heuristic"  # heuristic | videomae
+    explanation_provider: str = "heuristic"  # heuristic | qwen
+    explanation_cache_enabled: bool = True
+
     model_config = {"env_prefix": "AUREA_"}
 
 

@@ -1,4 +1,4 @@
-"""Heuristic analyzer — real video analysis using OpenCV + optional FFmpeg."""
+"""Heuristic analyzer with model-adapter factory integration."""
 
 from __future__ import annotations
 
@@ -8,50 +8,33 @@ from pathlib import Path
 from ..processing.audio_extractor import extract_audio_wav
 from ..processing.clip_ranker import rank_clips
 from ..processing.ffmpeg_probe import probe_video
-from ..processing.frame_extractor import (
-    compute_brightness,
-    compute_frame_diffs,
-    extract_frames,
-)
 from ..processing.timeline_builder import build_timeline
-from .audio_analyzer import analyze_audio, librosa_available
-from .explanation_engine import generate_insights
-from .speech_analyzer import transcribe_video, whisper_available
-from .text_hook_analyzer import detect_hooks, generate_hook_insights
 from ..schemas.analysis import (
     AnalysisResult,
     AnalysisStatus,
     TextHook as TextHookSchema,
-    TimelineEntry,
     Transcript,
     TranscriptSegment as TranscriptSegmentSchema,
     VideoMeta,
 )
+from .audio_analyzer import analyze_audio, librosa_available
+from .emotion_analyzer import HeuristicEmotionAnalyzer
+from .explanation_generator import HeuristicExplanationGenerator
+from .provider_factory import (
+    get_emotion_analyzer,
+    get_explanation_generator,
+    get_temporal_analyzer,
+    get_visual_analyzer,
+    temporal_analysis_enabled,
+)
+from .speech_analyzer import transcribe_video, whisper_available
+from .temporal_analyzer import HeuristicTemporalAnalyzer
+from .text_hook_analyzer import detect_hooks, generate_hook_insights
+from .visual_analyzer import HeuristicVisualAnalyzer
 
 logger = logging.getLogger(__name__)
 
 SAMPLE_INTERVAL = 1.0  # seconds between sampled frames
-
-
-def _compute_dominant_emotion(timeline: list[TimelineEntry]) -> str:
-    """Heuristic: pick dominant emotion from average arousal/valence."""
-    if not timeline:
-        return "Neutral"
-
-    avg_arousal = sum(e.arousal or 0.5 for e in timeline) / len(timeline)
-    avg_valence = sum(e.valence or 0.5 for e in timeline) / len(timeline)
-
-    if avg_arousal > 0.65 and avg_valence > 0.6:
-        return "Excitement"
-    if avg_arousal > 0.65 and avg_valence <= 0.6:
-        return "Tension"
-    if avg_arousal > 0.5 and avg_valence > 0.5:
-        return "Surprise"
-    if avg_valence > 0.6:
-        return "Joy"
-    if avg_valence < 0.4:
-        return "Sadness"
-    return "Neutral"
 
 
 def analyze_video(
@@ -59,11 +42,7 @@ def analyze_video(
     video_path: str,
     output_dir: str,
 ) -> AnalysisResult:
-    """Run heuristic analysis on a real video file.
-
-    Uses OpenCV for frame analysis and optionally FFmpeg for metadata.
-    Falls back gracefully if FFmpeg is unavailable.
-    """
+    """Run analysis while preserving the existing response contract."""
     video_file = Path(video_path)
     filename = video_file.name
 
@@ -77,6 +56,7 @@ def analyze_video(
     else:
         # Fallback: use OpenCV for basic metadata
         import cv2
+
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             logger.error("Cannot open video: %s", video_path)
@@ -100,13 +80,27 @@ def analyze_video(
         height=height,
     )
 
-    # Step 2: Extract frames and compute visual signals
-    extract_frames(video_path, output_dir, interval_seconds=SAMPLE_INTERVAL)
-    frame_diffs = compute_frame_diffs(video_path, interval_seconds=SAMPLE_INTERVAL)
-    brightness = compute_brightness(video_path, interval_seconds=SAMPLE_INTERVAL)
+    # Step 2: Extract visual signals (provider + fallback)
+    visual_adapter = get_visual_analyzer()
+    try:
+        visual = visual_adapter.analyze(
+            video_path=video_path,
+            output_dir=output_dir,
+            interval_seconds=SAMPLE_INTERVAL,
+        )
+    except Exception:
+        logger.exception(
+            "Visual provider '%s' failed. Falling back to heuristic.",
+            getattr(visual_adapter, "provider_name", "unknown"),
+        )
+        visual = HeuristicVisualAnalyzer().analyze(
+            video_path=video_path,
+            output_dir=output_dir,
+            interval_seconds=SAMPLE_INTERVAL,
+        )
 
-    if not frame_diffs:
-        logger.warning("No frame data extracted — returning failed result")
+    if not visual.frame_diffs:
+        logger.warning("No frame data extracted - returning failed result")
         return AnalysisResult(
             id=analysis_id,
             status=AnalysisStatus.failed,
@@ -118,7 +112,7 @@ def analyze_video(
     audio_silence = None
     audio_energy_change = None
     if librosa_available():
-        logger.info("librosa available — extracting audio features for %s", analysis_id)
+        logger.info("librosa available - extracting audio features for %s", analysis_id)
         wav_path = extract_audio_wav(video_path, output_dir)
         if wav_path:
             audio_features = analyze_audio(wav_path, interval_seconds=SAMPLE_INTERVAL)
@@ -128,11 +122,14 @@ def analyze_video(
                 audio_energy_change = audio_features.energy_change
                 logger.info("Audio features extracted: %d frames", len(audio_energy))
     else:
-        logger.debug("librosa not available — skipping audio analysis")
+        logger.debug("librosa not available - skipping audio analysis")
 
     # Step 3: Build timeline (with optional audio fusion)
     timeline = build_timeline(
-        duration, frame_diffs, brightness, SAMPLE_INTERVAL,
+        duration,
+        visual.frame_diffs,
+        visual.brightness,
+        SAMPLE_INTERVAL,
         audio_energy=audio_energy,
         audio_silence=audio_silence,
         audio_energy_change=audio_energy_change,
@@ -152,21 +149,60 @@ def analyze_video(
     peak_v = max(virality_values) if virality_values else 0.0
     rewatch_factor = round(peak_v / max(overall_virality, 0.01), 1)
 
-    # Step 6: Dominant emotion and explanation engine
-    dominant_emotion = _compute_dominant_emotion(timeline)
-    insights = generate_insights(
-        timeline=timeline,
-        top_clips=top_clips,
-        duration=duration,
-        overall_virality=overall_virality,
-        retention_score=retention_score,
-        dominant_emotion=dominant_emotion,
-    )
+    # Step 6: Dominant emotion (provider + fallback)
+    emotion_adapter = get_emotion_analyzer()
+    try:
+        dominant_emotion = emotion_adapter.dominant_emotion(timeline=timeline)
+    except Exception:
+        logger.exception(
+            "Emotion provider '%s' failed. Falling back to heuristic.",
+            getattr(emotion_adapter, "provider_name", "unknown"),
+        )
+        dominant_emotion = HeuristicEmotionAnalyzer().dominant_emotion(timeline=timeline)
+
+    # Step 6b: Optional temporal action score (disabled by default)
+    action_recognition_score: float | None = None
+    if temporal_analysis_enabled():
+        temporal_adapter = get_temporal_analyzer()
+        try:
+            temporal_analysis = temporal_adapter.analyze(timeline=timeline)
+        except Exception:
+            logger.exception(
+                "Temporal provider '%s' failed. Falling back to heuristic.",
+                getattr(temporal_adapter, "provider_name", "unknown"),
+            )
+            temporal_analysis = HeuristicTemporalAnalyzer().analyze(timeline=timeline)
+        action_recognition_score = temporal_analysis.action_score
+
+    # Step 6c: Explanation generation (provider + fallback)
+    explanation_generator = get_explanation_generator()
+    try:
+        insights = explanation_generator.generate(
+            timeline=timeline,
+            top_clips=top_clips,
+            duration=duration,
+            overall_virality=overall_virality,
+            retention_score=retention_score,
+            dominant_emotion=dominant_emotion,
+        )
+    except Exception:
+        logger.exception(
+            "Explanation provider '%s' failed. Falling back to heuristic.",
+            getattr(explanation_generator, "provider_name", "unknown"),
+        )
+        insights = HeuristicExplanationGenerator().generate(
+            timeline=timeline,
+            top_clips=top_clips,
+            duration=duration,
+            overall_virality=overall_virality,
+            retention_score=retention_score,
+            dominant_emotion=dominant_emotion,
+        )
 
     # Step 7: Optional speech transcription + text hook detection
     transcript_data: Transcript | None = None
     if whisper_available():
-        logger.info("Whisper available — transcribing audio for %s", analysis_id)
+        logger.info("Whisper available - transcribing audio for %s", analysis_id)
         tr = transcribe_video(str(video_file), output_dir)
         if tr and tr.segments:
             hooks = detect_hooks(tr.segments)
@@ -189,9 +225,13 @@ def analyze_video(
                     for h in hooks
                 ],
             )
-            logger.info("Transcription complete: %d segments, %d hooks", len(tr.segments), len(hooks))
+            logger.info(
+                "Transcription complete: %d segments, %d hooks",
+                len(tr.segments),
+                len(hooks),
+            )
     else:
-        logger.debug("Whisper not available — skipping transcription")
+        logger.debug("Whisper not available - skipping transcription")
 
     return AnalysisResult(
         id=analysis_id,
@@ -201,6 +241,7 @@ def analyze_video(
         overall_virality_score=round(overall_virality, 3),
         retention_score=round(retention_score, 3),
         rewatch_factor=rewatch_factor,
+        action_recognition_score=action_recognition_score,
         dominant_emotion=dominant_emotion,
         timeline=timeline,
         top_clips=top_clips,
