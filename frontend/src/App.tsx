@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useMemo, useRef } from "react";
-import { Sparkles, Loader2, WifiOff } from "lucide-react";
+import { Sparkles, Loader2, WifiOff, Film } from "lucide-react";
 
 import { useAnalysis } from "./hooks/useAnalysis";
 import { useAnalysisStore } from "./stores/analysisStore";
@@ -27,7 +27,7 @@ export default function App() {
   const isPlaying = useAnalysisStore((s) => s.isPlaying);
   const setPlaybackTime = useAnalysisStore((s) => s.setPlaybackTime);
   const setIsPlaying = useAnalysisStore((s) => s.setIsPlaying);
-  const { upload } = useVideoUpload();
+  const { upload, status: uploadStatus } = useVideoUpload();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeVideo = videoUrl ?? DEFAULT_VIDEO;
@@ -189,8 +189,25 @@ export default function App() {
           )}
 
           {/* Top Clips */}
-          {data.top_clips && data.top_clips.length > 0 && (
-            <ClipList clips={data.top_clips} analysisId={data.id} />
+          {uploadStatus === "uploading" || uploadStatus === "processing" ? (
+            <div className="bg-surface-container p-6 rounded-xl border border-outline-variant/20 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4">
+                <Film className="w-9 h-9 text-primary/40" />
+              </div>
+              <h3 className="text-headline-md mb-4 text-on-surface">
+                Top Clips
+              </h3>
+              <div className="flex flex-col items-center justify-center gap-3 py-8">
+                <Loader2 size={24} className="text-primary animate-spin" />
+                <span className="text-body-md text-on-surface-variant">
+                  Generating top clips…
+                </span>
+              </div>
+            </div>
+          ) : (
+            data.top_clips && data.top_clips.length > 0 && (
+              <ClipList clips={data.top_clips} analysisId={data.id} />
+            )
           )}
         </section>
 
