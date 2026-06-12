@@ -150,7 +150,7 @@ def analyze_video(
     rewatch_factor = round(peak_v / max(overall_virality, 0.01), 1)
 
     # Step 6: Dominant emotion (provider + fallback)
-    emotion_adapter = get_emotion_analyzer()
+    emotion_adapter = get_emotion_analyzer(video_path=video_path)
     try:
         dominant_emotion = emotion_adapter.dominant_emotion(timeline=timeline)
     except Exception:
@@ -163,7 +163,7 @@ def analyze_video(
     # Step 6b: Optional temporal action score (disabled by default)
     action_recognition_score: float | None = None
     if temporal_analysis_enabled():
-        temporal_adapter = get_temporal_analyzer()
+        temporal_adapter = get_temporal_analyzer(video_path=video_path)
         try:
             temporal_analysis = temporal_adapter.analyze(timeline=timeline)
         except Exception:

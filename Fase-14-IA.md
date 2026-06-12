@@ -98,14 +98,14 @@ Debes decidir y gestionar manualmente:
 2. Ruta de almacenamiento de pesos.
 3. Versionado de modelos para reproducibilidad.
 
-## 5. Pendiente para inferencia real
+## 5. Inferencia real (completado)
 
-Todavia falta implementar en codigo:
+Implementado en codigo:
 
-1. Inference real en `YoloVisualAnalyzer`.
-2. Inference real en `DeepFaceEmotionAnalyzer`.
-3. Inference real en `VideoMAETemporalAnalyzer`.
-4. Inference real en `QwenExplanationGenerator`.
+1. ✅ `YoloVisualAnalyzer` — YOLOv8n object detection sobre frames muestreados.
+2. ✅ `DeepFaceEmotionAnalyzer` — analisis facial de emociones con DeepFace sobre frames.
+3. ✅ `VideoMAETemporalAnalyzer` — action recognition con VideoMAE (Kinetics-400).
+4. ✅ `QwenExplanationGenerator` — generacion de insights con Qwen2.5-1.5B-Instruct.
 
 ## 6. Validacion manual recomendada
 
@@ -184,6 +184,6 @@ curl http://127.0.0.1:8000/api/viral-intelligence/analysis/mock
 
 Si quieres variables persistentes, agregalas en `~/.bashrc`.
 
-## 9. Nota final importante
+## 9. Nota final
 
-Aunque instales todo y actives flags, los providers de Fase 14 siguen en modo placeholder hasta implementar inferencia real en cada adapter. El sistema seguira funcionando por fallback heuristico sin romper el pipeline.
+Todos los providers de Fase 14 tienen inferencia real implementada. Si un modelo falla o una dependencia no esta instalada, el sistema sigue funcionando por fallback heuristico sin romper el pipeline.

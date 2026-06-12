@@ -67,14 +67,17 @@ def get_visual_analyzer() -> VisualAnalyzerAdapter:
     return heuristic
 
 
-def get_emotion_analyzer() -> EmotionAnalyzerAdapter:
+def get_emotion_analyzer(*, video_path: str | None = None) -> EmotionAnalyzerAdapter:
     provider = _env_flag("EMOTION_ANALYZER_PROVIDER", "heuristic")
     heuristic = HeuristicEmotionAnalyzer()
 
     if provider == "heuristic":
         return heuristic
     if provider == "deepface":
-        return _validate_or_fallback(DeepFaceEmotionAnalyzer(fallback=heuristic), heuristic)
+        return _validate_or_fallback(
+            DeepFaceEmotionAnalyzer(fallback=heuristic, video_path=video_path),
+            heuristic,
+        )
 
     logger.warning("Unknown EMOTION_ANALYZER_PROVIDER=%s. Falling back to heuristic.", provider)
     return heuristic
@@ -84,14 +87,17 @@ def temporal_analysis_enabled() -> bool:
     return _env_flag("ENABLE_TEMPORAL_ANALYSIS", "false") in {"1", "true", "yes"}
 
 
-def get_temporal_analyzer() -> TemporalAnalyzerAdapter:
+def get_temporal_analyzer(*, video_path: str | None = None) -> TemporalAnalyzerAdapter:
     provider = _env_flag("TEMPORAL_ANALYZER_PROVIDER", "heuristic")
     heuristic = HeuristicTemporalAnalyzer()
 
     if provider == "heuristic":
         return heuristic
     if provider == "videomae":
-        return _validate_or_fallback(VideoMAETemporalAnalyzer(fallback=heuristic), heuristic)
+        return _validate_or_fallback(
+            VideoMAETemporalAnalyzer(fallback=heuristic, video_path=video_path),
+            heuristic,
+        )
 
     logger.warning("Unknown TEMPORAL_ANALYZER_PROVIDER=%s. Falling back to heuristic.", provider)
     return heuristic

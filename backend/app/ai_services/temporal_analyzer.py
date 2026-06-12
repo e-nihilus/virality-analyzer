@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from .provider_exceptions import ProviderDependencyError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,16 +47,30 @@ class HeuristicTemporalAnalyzer(TemporalAnalyzerAdapter):
 
 
 class VideoMAETemporalAnalyzer(TemporalAnalyzerAdapter):
-    """VideoMAE provider placeholder.
+    """VideoMAE action-recognition adapter.
 
-    The adapter keeps current behavior while exposing a stable integration point
-    for real action recognition in a future phase.
+    When *video_path* is provided at construction time the adapter eagerly
+    samples 16 frames, runs ``VideoMAEForVideoClassification`` inference and
+    caches the resulting action score.  At ``analyze`` time the pre-computed
+    score is returned directly; if inference was skipped or failed the adapter
+    transparently falls back to the heuristic provider.
     """
 
     provider_name = "videomae"
+    _MODEL_NAME = "MCG-NJU/videomae-base-finetuned-kinetics"
+    _NUM_FRAMES = 16
 
-    def __init__(self, fallback: TemporalAnalyzerAdapter | None = None) -> None:
+    def __init__(
+        self,
+        fallback: TemporalAnalyzerAdapter | None = None,
+        video_path: str | None = None,
+    ) -> None:
         self._fallback = fallback or HeuristicTemporalAnalyzer()
+        self._precomputed_score: float | None = None
+        self._precomputed_label: str | None = None
+
+        if video_path is not None:
+            self._run_inference(video_path)
 
     def validate_dependencies(self) -> None:
         try:
@@ -64,11 +81,73 @@ class VideoMAETemporalAnalyzer(TemporalAnalyzerAdapter):
                 "VideoMAE provider requested but required 'torch/transformers' dependencies are not installed"
             ) from exc
 
-    def analyze(self, *, timeline: list[object]) -> TemporalAnalysis:
-        self.validate_dependencies()
+    def _sample_frames(self, video_path: str) -> list:
+        """Sample *_NUM_FRAMES* evenly-spaced RGB frames from *video_path*."""
+        import cv2
+        import numpy as np
 
-        # TODO(phase-14): run VideoMAE on frame windows and map logits into
-        # per-video action recognition confidence.
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise RuntimeError(f"Cannot open video: {video_path}")
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames < 1:
+            cap.release()
+            raise RuntimeError(f"Video has no frames: {video_path}")
+
+        indices = np.linspace(0, total_frames - 1, self._NUM_FRAMES, dtype=int)
+        frames: list[np.ndarray] = []
+        for idx in indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+            ret, frame = cap.read()
+            if not ret:
+                cap.release()
+                raise RuntimeError(f"Failed to read frame {idx} from {video_path}")
+            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+        cap.release()
+        return frames
+
+    def _run_inference(self, video_path: str) -> None:
+        """Run VideoMAE inference and cache the action score."""
+        try:
+            self.validate_dependencies()
+            import torch
+            from transformers import VideoMAEForVideoClassification, VideoMAEImageProcessor
+
+            frames = self._sample_frames(video_path)
+
+            processor = VideoMAEImageProcessor.from_pretrained(self._MODEL_NAME)
+            model = VideoMAEForVideoClassification.from_pretrained(self._MODEL_NAME)
+            model.eval()
+
+            inputs = processor(frames, return_tensors="pt")
+            with torch.no_grad():
+                outputs = model(**inputs)
+
+            logits = outputs.logits
+            probs = torch.nn.functional.softmax(logits, dim=-1)
+            top_prob, top_idx = probs.topk(1)
+
+            self._precomputed_score = round(top_prob.item(), 4)
+            self._precomputed_label = model.config.id2label[top_idx.item()]
+            logger.info(
+                "VideoMAE inference complete — label=%s score=%.4f",
+                self._precomputed_label,
+                self._precomputed_score,
+            )
+        except ProviderDependencyError:
+            logger.warning("VideoMAE dependencies unavailable; falling back to heuristic")
+        except Exception:
+            logger.warning("VideoMAE inference failed; falling back to heuristic", exc_info=True)
+
+    def analyze(self, *, timeline: list[object]) -> TemporalAnalysis:
+        if self._precomputed_score is not None:
+            return TemporalAnalysis(
+                action_score=self._precomputed_score,
+                provider=self.provider_name,
+            )
+
         fallback_analysis = self._fallback.analyze(timeline=timeline)
         fallback_analysis.provider = self.provider_name
         return fallback_analysis

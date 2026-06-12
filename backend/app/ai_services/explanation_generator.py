@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from abc import ABC, abstractmethod
 
-from ..schemas.analysis import Insight, TimelineEntry, TopClip
+from ..schemas.analysis import Insight, InsightSeverity, TimelineEntry, TopClip
 from .explanation_engine import generate_insights
+
 from .provider_exceptions import ProviderDependencyError
+
+logger = logging.getLogger(__name__)
 
 
 class ExplanationGenerator(ABC):
@@ -119,16 +123,21 @@ class CachedExplanationGenerator(ExplanationGenerator):
 
 
 class QwenExplanationGenerator(ExplanationGenerator):
-    """Qwen2.5-VL explanation provider placeholder.
+    """Qwen2.5-Instruct explanation provider.
 
     This provider is restricted to explanation generation only. Viral scores are
     still calculated by heuristic modules in the analysis pipeline.
     """
 
+    _MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
+    _SEVERITY_BY_POSITION = [InsightSeverity.high, InsightSeverity.medium, InsightSeverity.low]
+
     provider_name = "qwen"
 
     def __init__(self, fallback: ExplanationGenerator | None = None) -> None:
         self._fallback = fallback or HeuristicExplanationGenerator()
+        self._model = None
+        self._tokenizer = None
 
     def validate_dependencies(self) -> None:
         try:
@@ -138,6 +147,86 @@ class QwenExplanationGenerator(ExplanationGenerator):
             raise ProviderDependencyError(
                 "Qwen provider requested but required 'torch/transformers' dependencies are not installed"
             ) from exc
+
+    def _load_model(self) -> None:
+        """Lazy-load model and tokenizer on first use."""
+        if self._model is not None:
+            return
+
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        logger.info("Loading Qwen model %s …", self._MODEL_ID)
+        self._tokenizer = AutoTokenizer.from_pretrained(self._MODEL_ID, trust_remote_code=True)
+        self._model = AutoModelForCausalLM.from_pretrained(
+            self._MODEL_ID,
+            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            device_map="auto" if torch.cuda.is_available() else None,
+            trust_remote_code=True,
+        )
+        if not torch.cuda.is_available():
+            self._model = self._model.to("cpu")
+        self._model.eval()
+        logger.info("Qwen model loaded successfully.")
+
+    def _build_prompt(
+        self,
+        *,
+        top_clips: list[TopClip],
+        duration: float,
+        overall_virality: float,
+        retention_score: float,
+        dominant_emotion: str,
+    ) -> str:
+        clips_summary = "\n".join(
+            f"  - Clip {i + 1}: {c.start_seconds:.1f}s–{c.end_seconds:.1f}s (score {c.score:.2f})"
+            for i, c in enumerate(top_clips[:5])
+        )
+        return (
+            "You are a short-form video virality expert. Analyze the following metrics "
+            "and provide exactly 3 actionable insights about this video's viral potential.\n\n"
+            f"Overall virality score: {overall_virality:.2f}\n"
+            f"Retention score: {retention_score:.2f}\n"
+            f"Video duration: {duration:.1f}s\n"
+            f"Dominant emotion: {dominant_emotion}\n"
+            f"Top clips:\n{clips_summary}\n\n"
+            "Output exactly 3 insights, one per line, in this format:\n"
+            "TITLE: <short title> | DESCRIPTION: <explanation> | ACTION: <recommended action>\n\n"
+            "Do not include numbering, bullet points, or any other text outside this format."
+        )
+
+    def _parse_insights(self, text: str) -> list[Insight] | None:
+        """Parse model output into Insight objects. Returns None on failure."""
+        insights: list[Insight] = []
+        for line in text.strip().splitlines():
+            line = line.strip()
+            if not line or "TITLE:" not in line:
+                continue
+            try:
+                parts = line.split("|")
+                fields: dict[str, str] = {}
+                for part in parts:
+                    part = part.strip()
+                    for key in ("TITLE:", "DESCRIPTION:", "ACTION:"):
+                        if part.upper().startswith(key):
+                            fields[key] = part[len(key):].strip()
+                            break
+                if "TITLE:" not in fields or "DESCRIPTION:" not in fields:
+                    continue
+                severity = self._SEVERITY_BY_POSITION[min(len(insights), 2)]
+                insights.append(
+                    Insight(
+                        title=fields["TITLE:"],
+                        description=fields["DESCRIPTION:"],
+                        severity=severity,
+                        action=fields.get("ACTION:"),
+                    )
+                )
+                if len(insights) >= 3:
+                    break
+            except Exception:
+                continue
+        return insights if insights else None
 
     def generate(
         self,
@@ -151,10 +240,7 @@ class QwenExplanationGenerator(ExplanationGenerator):
     ) -> list[Insight]:
         self.validate_dependencies()
 
-        # TODO(phase-14): call Qwen2.5-VL to generate richer explanations from
-        # temporal signals and transcript context. Keep score computation outside
-        # this generator to preserve deterministic virality scoring.
-        return self._fallback.generate(
+        fallback_kwargs = dict(
             timeline=timeline,
             top_clips=top_clips,
             duration=duration,
@@ -162,3 +248,48 @@ class QwenExplanationGenerator(ExplanationGenerator):
             retention_score=retention_score,
             dominant_emotion=dominant_emotion,
         )
+
+        try:
+            import torch
+
+            self._load_model()
+
+            prompt = self._build_prompt(
+                top_clips=top_clips,
+                duration=duration,
+                overall_virality=overall_virality,
+                retention_score=retention_score,
+                dominant_emotion=dominant_emotion,
+            )
+
+            messages = [
+                {"role": "system", "content": "You are a video virality analysis assistant."},
+                {"role": "user", "content": prompt},
+            ]
+            text_input = self._tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            inputs = self._tokenizer(text_input, return_tensors="pt")
+            inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
+
+            with torch.no_grad():
+                output_ids = self._model.generate(
+                    **inputs,
+                    max_new_tokens=512,
+                    temperature=0.7,
+                    do_sample=True,
+                )
+
+            generated_ids = output_ids[0][inputs["input_ids"].shape[1]:]
+            raw_output = self._tokenizer.decode(generated_ids, skip_special_tokens=True)
+            logger.debug("Qwen raw output: %s", raw_output)
+
+            insights = self._parse_insights(raw_output)
+            if insights:
+                return insights
+
+            logger.warning("Failed to parse Qwen output, falling back to heuristic.")
+        except Exception:
+            logger.warning("Qwen inference failed, falling back to heuristic.", exc_info=True)
+
+        return self._fallback.generate(**fallback_kwargs)
