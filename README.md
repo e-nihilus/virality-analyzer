@@ -1,87 +1,149 @@
-# Aurea Viral Intelligence
+<div align="center">
 
-Local-first video analysis platform to estimate virality potential, detect high-retention moments, visualize temporal emotion, and generate actionable recommendations with clip candidates.
+# 🎬 Aurea Viral Intelligence
 
-Part of [AureaSuite](https://www.aureasuite.ai/) — designed to integrate as a microservice module.
+### Análisis de vídeo *local-first* para estimar el potencial de viralidad
 
-## Current Status
+Detecta momentos de alta retención · visualiza la emoción temporal · genera recomendaciones accionables con clips candidatos.
 
-**Phases completed: 1–13** of 15. The project is a functional MVP with real video analysis, optional speech/audio intelligence, and queue-based processing.
+<br/>
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | Monorepo structure & docs | ✅ |
-| 2 | Frontend Vite + Tailwind + Stitch tokens | ✅ |
-| 3 | HTML Stitch → React components | ✅ |
-| 4 | Backend FastAPI + mock contract | ✅ |
-| 5 | Frontend ↔ Backend connection | ✅ |
-| 6 | MP4 upload + local persistence | ✅ |
-| 7 | Real video pipeline (FFmpeg + OpenCV) | ✅ |
-| 8 | Background job lifecycle + polling | ✅ |
-| 9 | Explanation engine + actionable insights | ✅ |
-| 10 | Clip export with FFmpeg | ✅ |
-| 11 | Speech/NLP optional (Whisper) | ✅ |
-| 12 | Audio features optional (librosa) | ✅ |
-| 13 | Real queue & external workers (RQ/Redis) | ✅ |
-| 14 | Advanced multimodal AI adapters | ⬚ |
-| 15 | Tests, quality & local packaging | ⬚ |
+[![Status](https://img.shields.io/badge/status-MVP%20funcional-success?style=for-the-badge)](#-estado-actual)
+[![Phases](https://img.shields.io/badge/fases-13%2F15-blue?style=for-the-badge)](#-estado-actual)
+[![License](https://img.shields.io/badge/license-privada-lightgrey?style=for-the-badge)](#-licencia)
 
-## Features
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
+[![Tailwind](https://img.shields.io/badge/Tailwind-4-38BDF8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-007808?logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
 
-- **Professional UI** — React/Vite/Tailwind dark-mode dashboard inspired by Stitch Cinematic Intelligence Lab, responsive desktop & mobile
-- **Video upload** — drag-and-drop MP4/MOV/WebM/AVI/MKV (max 200 MB), validated client and server side
-- **Real video analysis** — frame sampling with OpenCV, motion detection, brightness analysis, heuristic scoring
-- **FFmpeg integration** — optional metadata extraction via `ffprobe` (falls back to OpenCV if unavailable)
-- **Audio analysis** *(optional)* — RMS energy, silence detection, and energy changes via librosa; fused into timeline scores for better arousal/retention accuracy
-- **Speech transcription** *(optional)* — faster-whisper integration for automatic transcription and verbal hook detection (curiosity gap, urgency, conflict, questions, commands, surprise)
-- **Background processing** — analysis dispatched via RQ/Redis queue or in-process thread fallback; the API responds immediately and the frontend polls for progress
-- **Unified timeline** — per-second scores for virality, arousal, valence, and retention with auto-detected labels (hook, pattern disruption, retention dip, motion spike, silence gap, audio spike)
-- **Clip ranking** — automatic detection of top clip candidates from virality peaks
-- **Explanation engine** — 8+ rule-based insight generators producing actionable recommendations with timestamps, extended with verbal hook insights when transcription is available
-- **Transcript panel** — frontend component showing timestamped transcript segments with hook badges, highlighted in sync with video playback
-- **Mock fallback** — full UI works offline with synthetic data when backend is unavailable
-- **AureaSuite-ready** — auth placeholders, namespaced API routes, configurable storage and queue backends
+<br/>
 
-## Architecture
+Forma parte de **[AureaSuite](https://www.aureasuite.ai/)** — diseñado para integrarse como módulo *microservice*.
+
+</div>
+
+---
+
+## 📑 Tabla de contenidos
+
+- [✨ Estado actual](#-estado-actual)
+- [🚀 Características](#-características)
+- [🏗️ Arquitectura](#️-arquitectura)
+- [📦 Requisitos](#-requisitos)
+- [⚡ Quick Start](#-quick-start)
+- [🔌 API Endpoints](#-api-endpoints)
+- [🧠 Pipeline de análisis](#-pipeline-de-análisis)
+- [⚙️ Variables de entorno](#️-variables-de-entorno)
+- [🛠️ Comandos clave](#️-comandos-clave)
+- [🧭 Filosofía de desarrollo](#-filosofía-de-desarrollo)
+- [📄 Licencia](#-licencia)
+
+---
+
+## ✨ Estado actual
+
+> **Fases completadas: 1–13** de 15. El proyecto es un MVP funcional con análisis real de vídeo, inteligencia opcional de voz/audio y procesamiento basado en colas.
+
+| Fase | Descripción | Estado |
+|:---:|-------------|:---:|
+| 1 | Estructura monorepo & docs | ✅ |
+| 2 | Frontend Vite + Tailwind + tokens Stitch | ✅ |
+| 3 | HTML Stitch → componentes React | ✅ |
+| 4 | Backend FastAPI + contrato mock | ✅ |
+| 5 | Conexión Frontend ↔ Backend | ✅ |
+| 6 | Subida MP4 + persistencia local | ✅ |
+| 7 | Pipeline real de vídeo (FFmpeg + OpenCV) | ✅ |
+| 8 | Ciclo de vida de jobs + polling | ✅ |
+| 9 | Motor de explicación + insights accionables | ✅ |
+| 10 | Exportación de clips con FFmpeg | ✅ |
+| 11 | Voz/NLP opcional (Whisper) | ✅ |
+| 12 | Features de audio opcionales (librosa) | ✅ |
+| 13 | Cola real & workers externos (RQ/Redis) | ✅ |
+| 14 | Adaptadores multimodales avanzados de IA | ⬚ |
+| 15 | Tests, calidad & empaquetado local | ⬚ |
+
+---
+
+## 🚀 Características
+
+- 🎨 **UI profesional** — dashboard React/Vite/Tailwind en modo oscuro inspirado en Stitch *Cinematic Intelligence Lab*, responsive escritorio y móvil
+- 📤 **Subida de vídeo** — arrastrar y soltar MP4/MOV/WebM/AVI/MKV (máx. 200 MB), validado en cliente y servidor
+- 🎞️ **Análisis real de vídeo** — muestreo de frames con OpenCV, detección de movimiento, análisis de brillo, scoring heurístico
+- 🔧 **Integración FFmpeg** — extracción de metadatos opcional vía `ffprobe` (cae a OpenCV si no está disponible)
+- 🔊 **Análisis de audio** *(opcional)* — energía RMS, detección de silencios y cambios de energía vía librosa; fusionado en el timeline para mejor precisión de arousal/retención
+- 🗣️ **Transcripción de voz** *(opcional)* — integración faster-whisper para transcripción automática y detección de hooks verbales (curiosity gap, urgencia, conflicto, preguntas, órdenes, sorpresa)
+- ⚙️ **Procesamiento en segundo plano** — análisis despachado vía cola RQ/Redis o fallback a hilo en proceso; la API responde al instante y el frontend hace polling del progreso
+- 📈 **Timeline unificado** — scores por segundo de viralidad, arousal, valencia y retención con etiquetas auto-detectadas (hook, ruptura de patrón, caída de retención, pico de movimiento, silencio, pico de audio)
+- ✂️ **Ranking de clips** — detección automática de los mejores clips candidatos a partir de los picos de viralidad
+- 💡 **Motor de explicación** — 8+ generadores de insights basados en reglas, con recomendaciones accionables y marcas de tiempo, ampliado con insights de hooks verbales cuando hay transcripción
+- 📝 **Panel de transcripción** — componente frontend con segmentos de transcripción marcados en el tiempo, badges de hook y sincronizados con la reproducción
+- 🧩 **Fallback mock** — la UI completa funciona offline con datos sintéticos cuando el backend no está disponible
+- 🔐 **AureaSuite-ready** — placeholders de auth, rutas API con namespace, backends de almacenamiento y cola configurables
+
+---
+
+## 🏗️ Arquitectura
 
 ```
 virality-analizer/
 ├─ frontend/          React 19 + Vite 8 + Tailwind 4 + TypeScript
-├─ backend/           FastAPI + OpenCV + FFmpeg pipeline
+├─ backend/           FastAPI + OpenCV + pipeline FFmpeg
 │  └─ app/
-│     ├─ api/routes/  REST endpoints
-│     ├─ schemas/     Pydantic models (source of truth)
-│     ├─ services/    Orchestration, storage, queue dispatch
-│     ├─ processing/  FFmpeg probe, frame extraction, audio extraction, timeline, clip ranking
-│     ├─ ai_services/ Heuristic, speech (Whisper), audio (librosa), text hook, explanation engine
-│     ├─ workers/     Background analysis jobs
-│     └─ core/        Config, paths, auth placeholder
-├─ shared/            JSON schemas + TypeScript types
-├─ uploads/           Video files + analysis results (gitignored)
-└─ docs/              Architecture & API contract docs
+│     ├─ api/routes/  Endpoints REST
+│     ├─ schemas/     Modelos Pydantic (fuente de verdad)
+│     ├─ services/    Orquestación, almacenamiento, dispatch de cola
+│     ├─ processing/  Probe FFmpeg, extracción de frames/audio, timeline, ranking de clips
+│     ├─ ai_services/ Heurística, voz (Whisper), audio (librosa), hook de texto, motor de explicación
+│     ├─ workers/     Jobs de análisis en background
+│     └─ core/        Config, paths, placeholder de auth
+├─ shared/            JSON schemas + tipos TypeScript
+├─ uploads/           Vídeos + resultados de análisis (gitignored)
+└─ docs/              Docs de arquitectura & contrato de API
 ```
 
-## Requirements
+```diagram
+╭──────────╮   upload    ╭──────────╮   dispatch   ╭──────────╮
+│ Frontend │────────────▶│ FastAPI  │─────────────▶│  Worker  │
+│  React   │◀────────────│   API    │◀─────────────│ RQ/Hilo  │
+╰──────────╯   polling   ╰────┬─────╯   resultado  ╰────┬─────╯
+                              │                          │
+                              ▼                          ▼
+                        ╭──────────╮              ╭──────────────╮
+                        │ uploads/ │              │ FFmpeg·OpenCV │
+                        │ + JSON   │              │ librosa·Whisper│
+                        ╰──────────╯              ╰──────────────╯
+```
 
-- **Node.js** 20+
-- **Python** 3.11+
-- **FFmpeg** (recommended, for accurate metadata and audio extraction)
-- **Git**
-- **Redis** *(optional, for RQ queue workers)*
+---
 
-## Quick Start
+## 📦 Requisitos
 
-### 1. Clone & setup
+| Herramienta | Versión | Notas |
+|-------------|---------|-------|
+| **Node.js** | 20+ | Frontend |
+| **Python** | 3.11+ | Backend |
+| **FFmpeg** | — | Recomendado, para metadatos y audio precisos |
+| **Git** | — | — |
+| **Redis** | — | *Opcional*, para workers de cola RQ |
+
+---
+
+## ⚡ Quick Start
+
+### 1️⃣ Clonar & preparar
 
 ```bash
 git clone <repo-url>
 cd virality-analizer
 ```
 
-### 2. Backend
+### 2️⃣ Backend
 
 ```bash
-# Create and activate virtual environment
+# Crear y activar entorno virtual
 python -m venv .venv
 
 # Windows PowerShell
@@ -91,22 +153,22 @@ source .venv/Scripts/activate
 # macOS/Linux
 source .venv/bin/activate
 
-# Install core dependencies
+# Instalar dependencias core
 pip install -e backend
 
-# Optional extras (install any combination)
-pip install -e "backend[audio]"       # librosa + soundfile (audio analysis)
-pip install -e "backend[speech]"      # faster-whisper (transcription)
-pip install -e "backend[queue]"       # redis + rq (queue workers)
-pip install -e "backend[all]"         # all of the above
+# Extras opcionales (instala cualquier combinación)
+pip install -e "backend[audio]"       # librosa + soundfile (análisis de audio)
+pip install -e "backend[speech]"      # faster-whisper (transcripción)
+pip install -e "backend[queue]"       # redis + rq (workers de cola)
+pip install -e "backend[all]"         # todo lo anterior
 
-# Start the server (auto-reload)
+# Arrancar el servidor (auto-reload)
 uvicorn app.main:app --reload --app-dir backend
 ```
 
-The API will be available at `http://127.0.0.1:8000`. Interactive docs at `/docs`.
+> 🌐 La API estará disponible en `http://127.0.0.1:8000`. Docs interactivas en `/docs`.
 
-### 3. Frontend
+### 3️⃣ Frontend
 
 ```bash
 cd frontend
@@ -114,132 +176,149 @@ npm install
 npm run dev
 ```
 
-The UI will be available at `http://localhost:5173`.
+> 🖥️ La UI estará disponible en `http://localhost:5173`.
 
-### 4. Verify
+### 4️⃣ Verificar
 
 ```bash
-# Backend health check
+# Health check del backend
 curl http://127.0.0.1:8000/api/viral-intelligence/health
 
-# Get mock analysis (no video needed)
+# Análisis mock (sin vídeo)
 curl http://127.0.0.1:8000/api/viral-intelligence/analysis/mock
 
-# Upload a video for real analysis
+# Subir un vídeo para análisis real
 curl -F "file=@sample.mp4" http://127.0.0.1:8000/api/viral-intelligence/analysis
 
-# Check analysis status/result
+# Consultar estado/resultado del análisis
 curl http://127.0.0.1:8000/api/viral-intelligence/analysis/<analysis_id>
 ```
 
-## API Endpoints
+---
 
-All routes under `/api/viral-intelligence/`:
+## 🔌 API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
+Todas las rutas bajo `/api/viral-intelligence/`:
+
+| Método | Ruta | Descripción |
+|:---:|------|-------------|
 | `GET` | `/health` | Health check |
-| `GET` | `/analysis/mock` | Full mock analysis for UI dev |
-| `POST` | `/analysis` | Upload video → starts background analysis |
-| `GET` | `/analysis/{id}` | Get analysis status & results |
-| `GET` | `/analysis` | List all analyses |
+| `GET` | `/analysis/mock` | Análisis mock completo para desarrollo de UI |
+| `POST` | `/analysis` | Subir vídeo → inicia análisis en background |
+| `GET` | `/analysis/{id}` | Obtener estado & resultados del análisis |
+| `GET` | `/analysis` | Listar todos los análisis |
 
-### Analysis lifecycle
+### 🔄 Ciclo de vida del análisis
 
 ```
 POST /analysis (upload) → status: "processing", progress: 0.0
 GET  /analysis/{id}     → status: "processing", progress: 0.1–0.9
-GET  /analysis/{id}     → status: "completed",  progress: 1.0, full results
+GET  /analysis/{id}     → status: "completed",  progress: 1.0, resultados completos
 ```
 
-The frontend polls every 1.5 seconds until `completed` or `failed`.
+> ⏱️ El frontend hace polling cada 1.5 segundos hasta `completed` o `failed`.
 
-## Analysis Pipeline
+---
 
-When a video is uploaded, the backend dispatches a job (via RQ or thread fallback):
+## 🧠 Pipeline de análisis
 
-1. **Probe** — `ffprobe` extracts duration, FPS, resolution, codecs (falls back to OpenCV)
-2. **Frame extraction** — samples one frame per second, saved as JPEG in `uploads/<id>/frames/`
-3. **Visual signals** — computes inter-frame differences (motion) and brightness per sample
-4. **Audio extraction** *(optional)* — FFmpeg exports mono WAV; librosa computes RMS energy, silence gaps, and energy changes per second
-5. **Timeline** — normalizes and smooths visual + audio signals into per-second virality/arousal/valence/retention scores
-6. **Clip ranking** — detects virality peaks, expands windows, ranks top 3 clip candidates
-7. **Speech transcription** *(optional)* — faster-whisper transcribes audio; text hook analyzer detects verbal hooks (curiosity gap, urgency, conflict, etc.)
-8. **Explanation engine** — generates insights from 8+ rule categories with timestamps and actionable recommendations
+Cuando se sube un vídeo, el backend despacha un job (vía RQ o fallback a hilo):
 
-### Insight categories
+1. **🔍 Probe** — `ffprobe` extrae duración, FPS, resolución, códecs (cae a OpenCV)
+2. **🎞️ Extracción de frames** — muestrea un frame por segundo, guardado como JPEG en `uploads/<id>/frames/`
+3. **👁️ Señales visuales** — calcula diferencias inter-frame (movimiento) y brillo por muestra
+4. **🔊 Extracción de audio** *(opcional)* — FFmpeg exporta WAV mono; librosa calcula energía RMS, silencios y cambios de energía por segundo
+5. **📈 Timeline** — normaliza y suaviza señales visuales + audio en scores por segundo de viralidad/arousal/valencia/retención
+6. **✂️ Ranking de clips** — detecta picos de viralidad, expande ventanas, rankea top 3 candidatos
+7. **🗣️ Transcripción de voz** *(opcional)* — faster-whisper transcribe el audio; el analizador de hooks de texto detecta hooks verbales (curiosity gap, urgencia, conflicto, etc.)
+8. **💡 Motor de explicación** — genera insights desde 8+ categorías de reglas con marcas de tiempo y recomendaciones accionables
 
-| Rule | Detects |
-|------|---------|
-| Hook analysis | Opening strength (first 3 seconds) |
-| Pattern disruption | Virality spikes from scene changes |
-| Retention dips | Drop-off risk points |
-| Emotional arc | Arousal/valence dynamics |
-| Pacing | Fast/slow visual rhythm |
-| Clip reasoning | Why each clip was selected |
-| Overall score | Global score explanation |
-| Ending strength | Loop potential & closing impact |
-| Verbal hooks *(optional)* | Curiosity gap, urgency, conflict, questions in speech |
+### 📋 Categorías de insights
 
-## Environment Variables
+| Regla | Detecta |
+|-------|---------|
+| Análisis de hook | Fuerza de apertura (primeros 3 segundos) |
+| Ruptura de patrón | Picos de viralidad por cambios de escena |
+| Caídas de retención | Puntos de riesgo de abandono |
+| Arco emocional | Dinámicas de arousal/valencia |
+| Ritmo | Cadencia visual rápida/lenta |
+| Razonamiento de clips | Por qué se seleccionó cada clip |
+| Score global | Explicación del score general |
+| Fuerza del final | Potencial de loop & impacto de cierre |
+| Hooks verbales *(opcional)* | Curiosity gap, urgencia, conflicto, preguntas en el habla |
 
-All prefixed with `AUREA_`:
+---
 
-| Variable | Default | Description |
-|----------|---------|-------------|
+## ⚙️ Variables de entorno
+
+Todas con prefijo `AUREA_`:
+
+| Variable | Por defecto | Descripción |
+|----------|-------------|-------------|
 | `AUREA_ENVIRONMENT` | `local` | `local` / `staging` / `production` |
-| `AUREA_CORS_ORIGINS` | `localhost:5173` | Allowed CORS origins |
-| `AUREA_AUTH_ENABLED` | `false` | Enable Clerk JWT validation |
+| `AUREA_CORS_ORIGINS` | `localhost:5173` | Orígenes CORS permitidos |
+| `AUREA_AUTH_ENABLED` | `false` | Habilitar validación JWT de Clerk |
 | `AUREA_STORAGE_BACKEND` | `local` | `local` / `s3` |
-| `AUREA_QUEUE_BACKEND` | `thread` | `thread` (in-process) / `redis` (RQ workers) |
-| `AUREA_REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL |
-| `AUREA_WHISPER_ENABLED` | `false` | Enable speech transcription via faster-whisper |
-| `AUREA_WHISPER_MODEL` | `small` | Whisper model size (`tiny` / `base` / `small` / `medium` / `large`) |
-| `AUREA_AUDIO_ENABLED` | `true` | Enable audio feature analysis via librosa |
-| `AUREA_VISUAL_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `yolo` (YOLO fallback to heuristic if dependency missing) |
-| `AUREA_EMOTION_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `deepface` (DeepFace fallback to heuristic if dependency missing) |
-| `AUREA_ENABLE_TEMPORAL_ANALYSIS` | `false` | Enable temporal analysis stage (disabled by default) |
-| `AUREA_TEMPORAL_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `videomae` (VideoMAE fallback to heuristic if dependency missing) |
-| `AUREA_EXPLANATION_PROVIDER` | `heuristic` | `heuristic` / `qwen` (Qwen used only for explanations, never scoring) |
-| `AUREA_EXPLANATION_CACHE_ENABLED` | `true` | Enable in-memory explanation cache |
-| `VITE_API_BASE_URL` | (empty) | Backend URL for frontend |
+| `AUREA_QUEUE_BACKEND` | `thread` | `thread` (en proceso) / `redis` (workers RQ) |
+| `AUREA_REDIS_URL` | `redis://localhost:6379/0` | URL de conexión a Redis |
+| `AUREA_WHISPER_ENABLED` | `false` | Habilitar transcripción de voz vía faster-whisper |
+| `AUREA_WHISPER_MODEL` | `small` | Tamaño del modelo Whisper (`tiny` / `base` / `small` / `medium` / `large`) |
+| `AUREA_AUDIO_ENABLED` | `true` | Habilitar análisis de features de audio vía librosa |
+| `AUREA_VISUAL_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `yolo` (YOLO cae a heurística si falta la dependencia) |
+| `AUREA_EMOTION_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `deepface` (DeepFace cae a heurística si falta la dependencia) |
+| `AUREA_ENABLE_TEMPORAL_ANALYSIS` | `false` | Habilitar etapa de análisis temporal (deshabilitada por defecto) |
+| `AUREA_TEMPORAL_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `videomae` (VideoMAE cae a heurística si falta la dependencia) |
+| `AUREA_EXPLANATION_PROVIDER` | `heuristic` | `heuristic` / `qwen` (Qwen solo para explicaciones, nunca scoring) |
+| `AUREA_EXPLANATION_CACHE_ENABLED` | `true` | Habilitar caché de explicaciones en memoria |
+| `VITE_API_BASE_URL` | (vacío) | URL del backend para el frontend |
 
-## Key Commands
+---
+
+## 🛠️ Comandos clave
 
 ```bash
 # ── Frontend ──
 cd frontend
-npm run dev          # Dev server with HMR
-npm run build        # Production build (TypeScript + Vite)
-npm run preview      # Preview production build
+npm run dev          # Dev server con HMR
+npm run build        # Build de producción (TypeScript + Vite)
+npm run preview      # Preview del build de producción
 npm run lint         # ESLint
 
 # ── Backend ──
 uvicorn app.main:app --reload --app-dir backend   # Dev server
-python -m pytest backend/tests                      # Run tests (when available)
+python -m pytest backend/tests                      # Tests (cuando estén disponibles)
 
-# ── Quick start (both) ──
-bash start.sh                                          # Launch backend + frontend together
+# ── Quick start (ambos) ──
+bash start.sh                                       # Lanza backend + frontend juntos
 
-# ── Redis queue (optional) ──
-docker compose up redis                             # Start Redis via Docker
-AUREA_QUEUE_BACKEND=redis python -m backend.run_worker  # Start RQ worker
+# ── Cola Redis (opcional) ──
+docker compose up redis                             # Arranca Redis vía Docker
+AUREA_QUEUE_BACKEND=redis python -m backend.run_worker  # Arranca worker RQ
 
 # ── FFmpeg ──
-ffmpeg -version                                     # Verify installation
-ffprobe -v quiet -print_format json -show_format -show_streams video.mp4  # Manual probe
+ffmpeg -version                                     # Verificar instalación
+ffprobe -v quiet -print_format json -show_format -show_streams video.mp4  # Probe manual
 ```
 
-## Development Philosophy
+---
 
-1. **Contract first** — UI and backend connect via a stable JSON schema
-2. **Mock before block** — if FFmpeg/model/GPU is missing, use mock with explicit warning
-3. **MVP local-first** — nothing requires cloud, login, or API keys to function
-4. **Adapters, not giant refactors** — each AI model connects behind an existing interface
-5. **Continuous validation** — each phase ends with a minimal build/test/curl check
-6. **Always "Potential Virality Score"** — never guarantee virality
-7. **Integration-ready** — all decisions consider future embedding into AureaSuite
+## 🧭 Filosofía de desarrollo
 
-## License
+1. **📜 Contract first** — UI y backend conectan vía un JSON schema estable
+2. **🧩 Mock before block** — si falta FFmpeg/modelo/GPU, usa mock con aviso explícito
+3. **💻 MVP local-first** — nada requiere cloud, login o API keys para funcionar
+4. **🔌 Adaptadores, no refactors gigantes** — cada modelo de IA conecta tras una interfaz existente
+5. **✅ Validación continua** — cada fase termina con un check mínimo build/test/curl
+6. **📊 Siempre "Potential Virality Score"** — nunca garantizar viralidad
+7. **🔗 Integration-ready** — todas las decisiones contemplan el futuro embebido en AureaSuite
 
-Private — All rights reserved.
+---
+
+## 📄 Licencia
+
+Privada — Todos los derechos reservados.
+
+<div align="center">
+<br/>
+Hecho con 🎬 por el equipo de <a href="https://www.aureasuite.ai/">AureaSuite</a>
+</div>
