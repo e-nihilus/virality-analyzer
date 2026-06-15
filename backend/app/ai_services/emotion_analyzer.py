@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from collections import Counter
+from dataclasses import dataclass
 
 from .provider_exceptions import ProviderDependencyError
 
@@ -155,3 +156,112 @@ class DeepFaceEmotionAnalyzer(EmotionAnalyzerAdapter):
             dominant,
         )
         return dominant
+
+
+@dataclass
+class FrameEmotionSignals:
+    """Per-frame valence/arousal derived from DeepFace emotion probabilities."""
+    valence: list[float]
+    arousal: list[float]
+
+
+# Russell's circumplex model weights for mapping discrete emotions → continuous V/A
+_VALENCE_WEIGHTS: dict[str, float] = {
+    "happy": 1.0,
+    "surprise": 0.2,
+    "neutral": 0.0,
+    "sad": -0.8,
+    "angry": -0.6,
+    "fear": -0.7,
+    "disgust": -0.8,
+}
+
+_AROUSAL_WEIGHTS: dict[str, float] = {
+    "angry": 0.8,
+    "fear": 0.7,
+    "surprise": 0.8,
+    "happy": 0.5,
+    "disgust": 0.3,
+    "neutral": -0.3,
+    "sad": -0.5,
+}
+
+
+def analyze_frames_deepface(
+    video_path: str,
+    interval_seconds: float = 1.0,
+) -> FrameEmotionSignals | None:
+    """Run DeepFace per-frame and return continuous valence/arousal arrays.
+
+    Uses Russell's circumplex model to convert DeepFace emotion probability
+    distributions into continuous valence (negative→positive) and arousal
+    (calm→excited) values in the [0, 1] range.
+
+    Returns ``None`` if deepface/cv2 are unavailable or all frames fail.
+    """
+    try:
+        import deepface  # noqa: F401
+        import cv2
+    except ImportError:
+        logger.debug("deepface or cv2 not available for per-frame analysis")
+        return None
+
+    from deepface import DeepFace
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        logger.warning("Cannot open video for per-frame emotion: %s", video_path)
+        return None
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frame_step = max(1, int(fps * interval_seconds))
+
+    valence_list: list[float] = []
+    arousal_list: list[float] = []
+    frame_idx = 0
+
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if frame_idx % frame_step == 0:
+                try:
+                    results = DeepFace.analyze(
+                        img_path=frame,
+                        actions=["emotion"],
+                        enforce_detection=False,
+                    )
+                    result = results[0] if isinstance(results, list) else results
+                    emotions: dict[str, float] = result.get("emotion", {})
+
+                    # Normalize emotion probabilities to sum to 1
+                    total = sum(emotions.values()) or 1.0
+
+                    # Weighted sum → raw valence/arousal in [-1, +1]
+                    raw_valence = sum(
+                        (prob / total) * _VALENCE_WEIGHTS.get(emo, 0.0)
+                        for emo, prob in emotions.items()
+                    )
+                    raw_arousal = sum(
+                        (prob / total) * _AROUSAL_WEIGHTS.get(emo, 0.0)
+                        for emo, prob in emotions.items()
+                    )
+
+                    # Remap [-1, +1] → [0, 1]
+                    valence_list.append(max(0.0, min(1.0, (raw_valence + 1.0) / 2.0)))
+                    arousal_list.append(max(0.0, min(1.0, (raw_arousal + 1.0) / 2.0)))
+                except Exception:
+                    logger.debug("DeepFace per-frame failed at frame %d – using neutral", frame_idx)
+                    valence_list.append(0.5)
+                    arousal_list.append(0.5)
+            frame_idx += 1
+    finally:
+        cap.release()
+
+    if not valence_list:
+        logger.warning("No frames analysed for per-frame emotion")
+        return None
+
+    logger.info("DeepFace per-frame emotion: %d frames analysed", len(valence_list))
+    return FrameEmotionSignals(valence=valence_list, arousal=arousal_list)

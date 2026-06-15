@@ -5,13 +5,14 @@
 ```
 Video subido
   │
-  ├─► OpenCV ──────────── frame_diffs, brightness ──► Timeline ──► Engagement Graph
-  ├─► YOLOv8n ─────────── detecciones de objetos ──► Esfera (virality, pacing)
-  ├─► DeepFace ────────── emoción dominante ────────► Emotion Quadrant + Esfera (emotion)
-  ├─► VideoMAE ────────── action recognition ───────► MetricCard (action score)
-  ├─► Qwen2.5 ─────────── insights en lenguaje natural ► Insights Panel
-  ├─► librosa (audio) ──── energía, silencios ──────► Timeline ──► Engagement Graph
-  └─► Whisper ─────────── transcripción + hooks ────► Transcript Panel
+  ├─► OpenCV ──────────── frame_diffs, brightness ──────────────────► Timeline ──► Engagement Graph
+  ├─► YOLOv8n ─────────── detection_density por frame ─────────────► Timeline (virality +12%)
+  ├─► DeepFace ────────── valence/arousal per-frame (circumplex) ──► Timeline (arousal 60%, valence 70%)
+  │                       + emoción dominante global ──────────────► Emotion Quadrant + Esfera
+  ├─► VideoMAE ────────── action recognition ──────────────────────► MetricCard (action score)
+  ├─► Qwen2.5 ─────────── insights en lenguaje natural ───────────► Insights Panel
+  ├─► librosa (audio) ──── energía, silencios ─────────────────────► Timeline ──► Engagement Graph
+  └─► Whisper ─────────── transcripción + hooks ───────────────────► Transcript Panel
 ```
 
 ---

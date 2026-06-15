@@ -39,17 +39,22 @@ def build_timeline(
     audio_energy: list[float] | None = None,
     audio_silence: list[bool] | None = None,
     audio_energy_change: list[float] | None = None,
+    face_valence: list[float] | None = None,
+    face_arousal: list[float] | None = None,
+    detection_density: list[float] | None = None,
 ) -> list[TimelineEntry]:
     """Build a heuristic timeline from visual and optional audio signals.
 
     Scores computed:
-    - virality: based on motion/novelty (frame diffs) + audio energy
-    - arousal: rising pattern + motion peaks + audio energy
-    - valence: derived from brightness stability
+    - virality: based on motion/novelty (frame diffs) + audio energy + YOLO detection density
+    - arousal: face emotion (DeepFace) blended with motion peaks + audio energy
+    - valence: face emotion (DeepFace) blended with brightness stability
     - retention: high at start, dips at low-motion/silence areas, recovers at peaks
 
-    When audio signals are provided they are fused with the visual signals
-    to produce more accurate scores.
+    When face emotion signals are provided (from DeepFace per-frame analysis),
+    arousal and valence use 60%/70% face data blended with heuristic signals.
+    When detection density is provided (from YOLO), virality gets a boost
+    proportional to the number of detected objects per frame.
     """
     n = len(frame_diffs)
     if n == 0:
@@ -80,6 +85,11 @@ def build_timeline(
         energy = smooth_audio[i] if smooth_audio and i < len(smooth_audio) else 0.0
         is_silent = audio_silence[i] if audio_silence and i < len(audio_silence) else False
         e_change = smooth_audio_change[i] if smooth_audio_change and i < len(smooth_audio_change) else 0.0
+        f_valence = face_valence[i] if face_valence and i < len(face_valence) else None
+        f_arousal = face_arousal[i] if face_arousal and i < len(face_arousal) else None
+        det_density = detection_density[i] if detection_density and i < len(detection_density) else 0.0
+
+        has_face = f_valence is not None and f_arousal is not None
 
         # Virality: motion-driven + audio energy boost
         hook_bonus = 0.15 * math.exp(-t / 3.0)
@@ -88,15 +98,25 @@ def build_timeline(
         else:
             virality = min(1.0, 0.3 + 0.5 * motion + hook_bonus + 0.1 * bright)
 
-        # Arousal: ramps up from baseline, motion + audio add peaks
+        # YOLO detection density boosts virality (more objects/people = more engaging)
+        virality = min(1.0, virality + 0.12 * det_density)
+
+        # Arousal: blend face-based with motion-based when DeepFace data is available
         ramp = min(1.0, 0.3 + 0.4 * (1 - math.exp(-t / 8.0)))
-        if has_audio:
+        if has_face:
+            motion_arousal = ramp * 0.5 + motion * 0.3 + (energy * 0.2 if has_audio else motion * 0.1)
+            arousal = min(1.0, 0.4 * motion_arousal + 0.6 * f_arousal)
+        elif has_audio:
             arousal = min(1.0, ramp * 0.5 + motion * 0.3 + energy * 0.2)
         else:
             arousal = min(1.0, ramp * 0.6 + motion * 0.4)
 
-        # Valence: brightness-driven with slight stability bonus
-        valence = min(1.0, 0.4 + 0.4 * bright + 0.1 * motion)
+        # Valence: use face-derived valence when available, else brightness-based
+        if has_face:
+            bright_valence = 0.4 + 0.4 * bright + 0.1 * motion
+            valence = min(1.0, 0.3 * bright_valence + 0.7 * f_valence)
+        else:
+            valence = min(1.0, 0.4 + 0.4 * bright + 0.1 * motion)
 
         # Retention: starts high, decays slowly, motion/audio peaks recover it
         base_retention = 0.92 - 0.15 * (t / max(duration_seconds, 1.0))

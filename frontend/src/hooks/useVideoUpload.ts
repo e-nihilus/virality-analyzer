@@ -44,10 +44,12 @@ export function useVideoUpload() {
               analysis: result,
               source: "backend",
               error: null,
+              uploading: false,
             });
             setStatus("done");
           } else if (result.status === "failed") {
             stopPolling();
+            useAnalysisStore.setState({ uploading: false });
             setError("Analysis failed. Please try a different video.");
             setStatus("error");
           }
@@ -84,11 +86,12 @@ export function useVideoUpload() {
       }
 
       try {
-        // Clear previous analysis so the UI shows loading
+        // Clear previous analysis and mark upload in progress
         useAnalysisStore.setState({
           analysis: null,
           source: "backend",
           error: null,
+          uploading: true,
         });
 
         // Create a local preview URL for the video
@@ -107,6 +110,7 @@ export function useVideoUpload() {
             analysis: result,
             source: "backend",
             error: null,
+            uploading: false,
           });
           setStatus("done");
         } else {
@@ -114,6 +118,7 @@ export function useVideoUpload() {
           pollAnalysis(id);
         }
       } catch (err) {
+        useAnalysisStore.setState({ uploading: false });
         const message = err instanceof Error ? err.message : "Upload failed";
         setError(message);
         setStatus("error");

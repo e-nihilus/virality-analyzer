@@ -9,6 +9,7 @@ interface AnalysisState {
   error: string | null;
   source: "backend" | "local-mock";
   videoUrl: string | null;
+  uploading: boolean;
   playbackTime: number;
   isPlaying: boolean;
   setPlaybackTime: (t: number) => void;
@@ -22,6 +23,7 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   error: null,
   source: "local-mock",
   videoUrl: null,
+  uploading: false,
   playbackTime: 0,
   isPlaying: false,
   setPlaybackTime: (t) => set({ playbackTime: t }),

@@ -2,14 +2,14 @@ import { useEffect } from "react";
 import { useAnalysisStore } from "../stores/analysisStore";
 
 export function useAnalysis() {
-  const { analysis, loading, error, source, loadAnalysis } =
+  const { analysis, loading, error, source, uploading, loadAnalysis } =
     useAnalysisStore();
 
   useEffect(() => {
-    if (!analysis && !loading) {
+    if (!analysis && !loading && !uploading) {
       loadAnalysis();
     }
-  }, [analysis, loading, loadAnalysis]);
+  }, [analysis, loading, uploading, loadAnalysis]);
 
   return { analysis, loading, error, source };
 }

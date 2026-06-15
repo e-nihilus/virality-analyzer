@@ -18,7 +18,7 @@ from ..schemas.analysis import (
     VideoMeta,
 )
 from .audio_analyzer import analyze_audio, librosa_available
-from .emotion_analyzer import HeuristicEmotionAnalyzer
+from .emotion_analyzer import HeuristicEmotionAnalyzer, analyze_frames_deepface
 from .explanation_generator import HeuristicExplanationGenerator
 from .provider_factory import (
     get_emotion_analyzer,
@@ -124,7 +124,42 @@ def analyze_video(
     else:
         logger.debug("librosa not available - skipping audio analysis")
 
-    # Step 3: Build timeline (with optional audio fusion)
+    # Step 2c: Aggregate YOLO detections into per-second density for timeline
+    detection_density: list[float] | None = None
+    if visual.detections:
+        import cv2 as _cv2
+
+        _cap = _cv2.VideoCapture(video_path)
+        _fps = _cap.get(_cv2.CAP_PROP_FPS) or 30.0
+        _cap.release()
+        frame_step = max(1, int(_fps * SAMPLE_INTERVAL))
+
+        n_frames = len(visual.frame_diffs)
+        counts = [0] * n_frames
+        for det in visual.detections:
+            idx = int(det["frame_index"]) // frame_step
+            if 0 <= idx < n_frames:
+                counts[idx] += 1
+        max_count = max(counts) if counts else 1
+        detection_density = [c / max(max_count, 1) for c in counts]
+        logger.info("YOLO detection density: max=%d detections/frame", max_count)
+
+    # Step 2d: DeepFace per-frame emotion for timeline enrichment
+    face_valence: list[float] | None = None
+    face_arousal: list[float] | None = None
+    from .provider_factory import _env_flag
+    if _env_flag("EMOTION_ANALYZER_PROVIDER", "heuristic") == "deepface":
+        logger.info("Running DeepFace per-frame analysis for timeline enrichment")
+        try:
+            face_signals = analyze_frames_deepface(video_path, interval_seconds=SAMPLE_INTERVAL)
+            if face_signals:
+                face_valence = face_signals.valence
+                face_arousal = face_signals.arousal
+                logger.info("DeepFace per-frame: %d valence/arousal pairs", len(face_valence))
+        except Exception:
+            logger.warning("DeepFace per-frame analysis failed — using heuristic", exc_info=True)
+
+    # Step 3: Build timeline (with optional audio + AI fusion)
     timeline = build_timeline(
         duration,
         visual.frame_diffs,
@@ -133,6 +168,9 @@ def analyze_video(
         audio_energy=audio_energy,
         audio_silence=audio_silence,
         audio_energy_change=audio_energy_change,
+        face_valence=face_valence,
+        face_arousal=face_arousal,
+        detection_density=detection_density,
     )
 
     # Step 4: Rank clips

@@ -27,7 +27,8 @@ export default function App() {
   const isPlaying = useAnalysisStore((s) => s.isPlaying);
   const setPlaybackTime = useAnalysisStore((s) => s.setPlaybackTime);
   const setIsPlaying = useAnalysisStore((s) => s.setIsPlaying);
-  const { upload, status: uploadStatus } = useVideoUpload();
+  const uploading = useAnalysisStore((s) => s.uploading);
+  const { upload } = useVideoUpload();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeVideo = videoUrl ?? DEFAULT_VIDEO;
@@ -189,7 +190,7 @@ export default function App() {
           )}
 
           {/* Top Clips */}
-          {uploadStatus === "uploading" || uploadStatus === "processing" ? (
+          {uploading ? (
             <div className="bg-surface-container p-6 rounded-xl border border-outline-variant/20 relative overflow-hidden">
               <div className="absolute top-0 right-0 p-4">
                 <Film className="w-9 h-9 text-primary/40" />
