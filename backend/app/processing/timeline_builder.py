@@ -31,6 +31,48 @@ def _smooth(values: list[float], window: int = 3) -> list[float]:
     return smoothed
 
 
+def _classes_for_second(detections: list[dict] | None, index: int) -> set[str]:
+    if not detections:
+        return set()
+    classes: set[str] = set()
+    for det in detections:
+        try:
+            det_index = int(round(float(det.get("time_seconds", det.get("sample_index", -999)))))
+        except (TypeError, ValueError):
+            continue
+        if det_index == index:
+            class_name = str(det.get("class_name", "")).strip().lower()
+            if class_name:
+                classes.add(class_name)
+    return classes
+
+
+def _ai_label_for_second(
+    *,
+    index: int,
+    motion: float,
+    current_classes: set[str],
+    previous_classes: set[str],
+) -> str | None:
+    if not current_classes and not previous_classes:
+        return "Camera movement" if motion > 0.65 else None
+
+    new_classes = current_classes - previous_classes
+    disappeared_classes = previous_classes - current_classes
+
+    if "person" in new_classes:
+        return "Person enters scene"
+    if len(new_classes) >= 3:
+        return "Visual complexity peak"
+    if disappeared_classes and motion > 0.35:
+        return "Scene change"
+    if not current_classes and motion > 0.55:
+        return "Camera movement"
+    if index == 0 and "person" in current_classes:
+        return "Person visible hook"
+    return None
+
+
 def build_timeline(
     duration_seconds: float,
     frame_diffs: list[float],
@@ -42,6 +84,8 @@ def build_timeline(
     face_valence: list[float] | None = None,
     face_arousal: list[float] | None = None,
     detection_density: list[float] | None = None,
+    retention_override: list[float] | None = None,
+    detections: list[dict] | None = None,
 ) -> list[TimelineEntry]:
     """Build a heuristic timeline from visual and optional audio signals.
 
@@ -75,6 +119,7 @@ def build_timeline(
 
     entries: list[TimelineEntry] = []
     retention_values_so_far: list[float] = []
+    previous_classes: set[str] = set()
     for i in range(n):
         t = i * interval_seconds
         if t > duration_seconds:
@@ -118,18 +163,31 @@ def build_timeline(
         else:
             valence = min(1.0, 0.4 + 0.4 * bright + 0.1 * motion)
 
-        # Retention: starts high, decays slowly, motion/audio peaks recover it
-        base_retention = 0.92 - 0.15 * (t / max(duration_seconds, 1.0))
-        if has_audio:
-            silence_penalty = -0.1 if is_silent else 0.0
-            retention = min(1.0, max(0.3, base_retention + 0.15 * motion + 0.1 * energy + silence_penalty))
+        if retention_override and i < len(retention_override):
+            retention = min(1.0, max(0.0, retention_override[i]))
         else:
-            retention = min(1.0, max(0.3, base_retention + 0.2 * motion))
+            # Fallback retention: starts high, decays slowly, motion/audio peaks recover it
+            base_retention = 0.92 - 0.15 * (t / max(duration_seconds, 1.0))
+            if has_audio:
+                silence_penalty = -0.1 if is_silent else 0.0
+                retention = min(1.0, max(0.3, base_retention + 0.15 * motion + 0.1 * energy + silence_penalty))
+            else:
+                retention = min(1.0, max(0.3, base_retention + 0.2 * motion))
 
         # Labels for notable moments
+        current_classes = _classes_for_second(detections, i)
         label = None
         if i == 0:
             label = "Hook open"
+        elif detections:
+            label = _ai_label_for_second(
+                index=i,
+                motion=motion,
+                current_classes=current_classes,
+                previous_classes=previous_classes,
+            )
+            if label is None and len(current_classes) >= 3:
+                label = "Visually rich scene"
         elif motion > 0.8 and (i == 0 or smooth_diffs[i - 1] < 0.6):
             label = "Pattern disruption"
         elif has_audio and is_silent and i > 1 and not (audio_silence and audio_silence[i - 1]):
@@ -143,6 +201,7 @@ def build_timeline(
         elif i == n - 1:
             label = "End frame"
         retention_values_so_far.append(retention)
+        previous_classes = current_classes
 
         entries.append(
             TimelineEntry(

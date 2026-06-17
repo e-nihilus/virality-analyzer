@@ -1,10 +1,12 @@
 import clsx from "clsx";
 import { Clock, MessageSquareText, Zap } from "lucide-react";
-import type { Transcript, TextHook } from "../../types/analysis";
+import type { MetricSourceType, Transcript, TextHook } from "../../types/analysis";
 
 interface TranscriptPanelProps {
   transcript: Transcript;
   currentTime?: number;
+  hooksSourceType?: MetricSourceType;
+  hooksSourceMessage?: string;
 }
 
 function formatTimestamp(seconds: number): string {
@@ -22,11 +24,21 @@ const hookTypeLabel: Record<string, string> = {
   surprise: "Surprise",
 };
 
-function HookBadge({ hook }: { hook: TextHook }) {
+function HookBadge({ hook, sourceType }: { hook: TextHook; sourceType?: MetricSourceType }) {
+  const isAi = sourceType === "ai";
   return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-primary-container/20 px-1.5 py-0.5 text-mono-metric text-primary">
+    <span
+      className={clsx(
+        "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-mono-metric",
+        isAi
+          ? "bg-primary-container/20 text-primary"
+          : "bg-surface-container-highest text-on-surface-variant",
+      )}
+      title={isAi ? "Qwen-classified verbal hook" : "Explicit regex fallback hook"}
+    >
       <Zap size={10} />
       {hookTypeLabel[hook.hook_type] ?? hook.hook_type}
+      {!isAi && <span className="opacity-70">Regex</span>}
     </span>
   );
 }
@@ -34,6 +46,8 @@ function HookBadge({ hook }: { hook: TextHook }) {
 export default function TranscriptPanel({
   transcript,
   currentTime = 0,
+  hooksSourceType,
+  hooksSourceMessage,
 }: TranscriptPanelProps) {
   const { segments, hooks } = transcript;
 
@@ -55,6 +69,12 @@ export default function TranscriptPanel({
       <h3 className="text-headline-md mb-4 text-on-surface">
         Transcript &amp; Verbal Hooks
       </h3>
+      {hooks.length > 0 && hooksSourceType && (
+        <p className="text-label-sm text-on-surface-variant mb-3">
+          Hooks: {hooksSourceType === "ai" ? "Qwen AI" : "explicit fallback"}
+          {hooksSourceMessage ? ` — ${hooksSourceMessage}` : ""}
+        </p>
+      )}
 
       <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
         {segments.map((seg, i) => {
@@ -82,7 +102,7 @@ export default function TranscriptPanel({
                 {segHooks.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                     {segHooks.map((h, j) => (
-                      <HookBadge key={j} hook={h} />
+                      <HookBadge key={j} hook={h} sourceType={hooksSourceType} />
                     ))}
                   </div>
                 )}

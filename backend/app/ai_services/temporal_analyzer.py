@@ -148,6 +148,4 @@ class VideoMAETemporalAnalyzer(TemporalAnalyzerAdapter):
                 provider=self.provider_name,
             )
 
-        fallback_analysis = self._fallback.analyze(timeline=timeline)
-        fallback_analysis.provider = self.provider_name
-        return fallback_analysis
+        return self._fallback.analyze(timeline=timeline)

@@ -154,10 +154,10 @@ class YoloVisualAnalyzer(VisualAnalyzerAdapter):
             output_dir=output_dir,
             interval_seconds=interval_seconds,
         )
-        fallback_analysis.provider = self.provider_name
 
         try:
             detections = self._run_yolo_on_frames(video_path, interval_seconds)
+            fallback_analysis.provider = self.provider_name
             fallback_analysis.detections = detections
         except Exception:
             logger.warning(

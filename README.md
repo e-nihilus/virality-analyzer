@@ -1,110 +1,149 @@
-# Aurea Viral Intelligence
+# ✨ Aurea Viral Intelligence
 
-Local-first video analysis platform to estimate virality potential, detect high-retention moments, visualize temporal emotion, and generate actionable recommendations with clip candidates.
+**Aurea Viral Intelligence** es una aplicación local-first para analizar vídeos cortos y estimar su potencial de viralidad con una mezcla explícita de:
 
-Part of [AureaSuite](https://www.aureasuite.ai/) — designed to integrate as a microservice module.
+- modelos IA reales sobre el vídeo/audio/texto,
+- señales audiovisuales reales derivadas con OpenCV/FFmpeg/librosa,
+- métricas compuestas etiquetadas como `derived`,
+- y una demo inicial mock claramente separada del flujo de upload real.
 
-## Current Status
+El objetivo actual del proyecto es muy concreto: **si el usuario sube un vídeo manualmente, el frontend no debe mostrar datos inventados, hardcodeados ni mock como si fueran análisis real**.
 
-**Phases completed: 1–13** of 15. The project is a functional MVP with real video analysis, optional speech/audio intelligence, and queue-based processing.
+> Proyecto pensado como módulo/microservicio de [AureaSuite](https://www.aureasuite.ai/).
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | Monorepo structure & docs | ✅ |
-| 2 | Frontend Vite + Tailwind + Stitch tokens | ✅ |
-| 3 | HTML Stitch → React components | ✅ |
-| 4 | Backend FastAPI + mock contract | ✅ |
-| 5 | Frontend ↔ Backend connection | ✅ |
-| 6 | MP4 upload + local persistence | ✅ |
-| 7 | Real video pipeline (FFmpeg + OpenCV) | ✅ |
-| 8 | Background job lifecycle + polling | ✅ |
-| 9 | Explanation engine + actionable insights | ✅ |
-| 10 | Clip export with FFmpeg | ✅ |
-| 11 | Speech/NLP optional (Whisper) | ✅ |
-| 12 | Audio features optional (librosa) | ✅ |
-| 13 | Real queue & external workers (RQ/Redis) | ✅ |
-| 14 | Advanced multimodal AI adapters | ⬚ |
-| 15 | Tests, quality & local packaging | ⬚ |
+---
 
-## Features
+## 🟢 Estado actual del proyecto
 
-- **Professional UI** — React/Vite/Tailwind dark-mode dashboard inspired by Stitch Cinematic Intelligence Lab, responsive desktop & mobile
-- **Video upload** — drag-and-drop MP4/MOV/WebM/AVI/MKV (max 200 MB), validated client and server side
-- **Real video analysis** — frame sampling with OpenCV, motion detection, brightness analysis, heuristic scoring
-- **FFmpeg integration** — optional metadata extraction via `ffprobe` (falls back to OpenCV if unavailable)
-- **Audio analysis** *(optional)* — RMS energy, silence detection, and energy changes via librosa; fused into timeline scores for better arousal/retention accuracy
-- **Speech transcription** *(optional)* — faster-whisper integration for automatic transcription and verbal hook detection (curiosity gap, urgency, conflict, questions, commands, surprise)
-- **Background processing** — analysis dispatched via RQ/Redis queue or in-process thread fallback; the API responds immediately and the frontend polls for progress
-- **Unified timeline** — per-second scores for virality, arousal, valence, and retention with auto-detected labels (hook, pattern disruption, retention dip, motion spike, silence gap, audio spike)
-- **Clip ranking** — automatic detection of top clip candidates from virality peaks
-- **Explanation engine** — 8+ rule-based insight generators producing actionable recommendations with timestamps, extended with verbal hook insights when transcription is available
-- **Transcript panel** — frontend component showing timestamped transcript segments with hook badges, highlighted in sync with video playback
-- **Mock fallback** — full UI works offline with synthetic data when backend is unavailable
-- **AureaSuite-ready** — auth placeholders, namespaced API routes, configurable storage and queue backends
+**Fecha de estado:** 2026-06-16  
+**Estado:** MVP funcional con guardrails contra datos falsos en uploads reales.
 
-## Architecture
+### Ya implementado
 
-```
-virality-analizer/
-├─ frontend/          React 19 + Vite 8 + Tailwind 4 + TypeScript
-├─ backend/           FastAPI + OpenCV + FFmpeg pipeline
+- ✅ Frontend React/Vite/Tailwind con dashboard visual y esfera 3D.
+- ✅ Backend FastAPI con endpoints de análisis, upload, polling y health check.
+- ✅ Upload real de vídeo y procesamiento en background.
+- ✅ Demo inicial mock separada del modo upload real.
+- ✅ Resultado backend con procedencia:
+  - `analysis_source`
+  - `provider_status`
+  - `metric_sources`
+- ✅ El worker **ya no convierte errores de uploads reales en mock silencioso**.
+- ✅ El frontend ya no usa valores hardcodeados para uploads reales como `8.4s`, `88.4%`, `3.2x` o curvas default si falta información.
+- ✅ Métricas no disponibles se muestran como `No disponible` o se ocultan.
+- ✅ Tests backend y guardrails frontend añadidos.
+
+### Importante sobre precisión IA
+
+No todas las métricas numéricas son “IA pura”. El sistema distingue explícitamente:
+
+| Tipo | Significado | Ejemplos |
+|---|---|---|
+| `ai` | Modelo IA real usado para esa señal/métrica | YOLO, DeepFace, VideoMAE, Qwen, Whisper, CLIP |
+| `derived` | Fórmula o composición sobre señales reales | virality score, retention score si no hay modelo ML |
+| `heuristic` | Regla local explícita | fallback configurable o provider heurístico |
+| `mock` | Solo demo inicial | vídeo/datos de muestra |
+| `unavailable` | No calculado de forma fiable | se oculta o muestra “No disponible” |
+
+### Estado de providers principales
+
+| Área | Provider actual/recomendado | Estado |
+|---|---|---|
+| Objetos/visual | YOLO | IA real si dependencias/modelo disponibles |
+| Emoción | DeepFace | IA real si dependencias disponibles |
+| Temporal/action | VideoMAE | IA real si `ENABLE_TEMPORAL_ANALYSIS=true` |
+| Explicaciones | Qwen | IA generativa para texto/razones |
+| Transcripción | Whisper/faster-whisper | IA real si `AUREA_WHISPER_ENABLED=true` |
+| Memorabilidad/rewatch | CLIP | IA real si está disponible; si falla, no se inventa valor |
+| Top clips | CLIP + señales reales | sin CLIP, no se inventa ranking IA |
+| Pacing | PySceneDetect | cortes reales; si no está disponible, métrica unavailable |
+| Retention | derivado o ML opcional | por defecto `derived`, ML solo con modelo configurado |
+| Virality score | derivado o ML opcional | por defecto `derived_formula`, ML solo con modelo configurado |
+
+---
+
+## 🧭 Arquitectura
+
+```text
+virality-analyzer/
+├─ frontend/                  React 19 + Vite 8 + Tailwind 4 + TypeScript
+│  ├─ src/components/          Dashboard, gráficas, esfera 3D, transcript
+│  ├─ src/hooks/               Upload, polling y carga de demo
+│  ├─ src/stores/              Estado demo/upload/failed
+│  └─ scripts/guardrails.mjs   Validación contra fallbacks frontend falsos
+│
+├─ backend/                   FastAPI + pipeline audiovisual
 │  └─ app/
-│     ├─ api/routes/  REST endpoints
-│     ├─ schemas/     Pydantic models (source of truth)
-│     ├─ services/    Orchestration, storage, queue dispatch
-│     ├─ processing/  FFmpeg probe, frame extraction, audio extraction, timeline, clip ranking
-│     ├─ ai_services/ Heuristic, speech (Whisper), audio (librosa), text hook, explanation engine
-│     ├─ workers/     Background analysis jobs
-│     └─ core/        Config, paths, auth placeholder
-├─ shared/            JSON schemas + TypeScript types
-├─ uploads/           Video files + analysis results (gitignored)
-└─ docs/              Architecture & API contract docs
+│     ├─ api/routes/           REST API
+│     ├─ schemas/              Contrato Pydantic del resultado
+│     ├─ services/             Storage, queue y orquestación
+│     ├─ workers/              Jobs de análisis
+│     ├─ processing/           FFmpeg, frames, audio, clips, escenas, timeline
+│     └─ ai_services/          YOLO, DeepFace, VideoMAE, Qwen, Whisper, CLIP,
+│                              predictors derived/ML y analyzers heurísticos
+│
+├─ shared/                    JSON Schema + tipos TypeScript compartidos
+├─ uploads/                   Vídeos, frames, resultados y clips generados
+├─ status.md                  Auditoría IA/heurística/mock del frontend
+├─ ToDo.txt                   Plan de hardening IA para uploads reales
+└─ docker-compose.yml         Redis opcional para workers RQ
 ```
 
-## Requirements
+Flujo simplificado:
 
-- **Node.js** 20+
-- **Python** 3.11+
-- **FFmpeg** (recommended, for accurate metadata and audio extraction)
-- **Git**
-- **Redis** *(optional, for RQ queue workers)*
-
-## Quick Start
-
-### 1. Clone & setup
-
-```bash
-git clone <repo-url>
-cd virality-analizer
+```text
+Upload vídeo
+   │
+   ▼
+FastAPI crea analysis_id y job
+   │
+   ▼
+Worker analiza vídeo real
+   │
+   ├─ FFmpeg/OpenCV/librosa: señales reales
+   ├─ YOLO/DeepFace/VideoMAE/Whisper/CLIP/Qwen: IA si disponible
+   ├─ métricas derived cuando corresponde
+   └─ provider_status + metric_sources
+   │
+   ▼
+Frontend poll /analysis/{id}
+   │
+   ├─ muestra datos reales/procedencia
+   ├─ marca derived/composite cuando no es IA pura
+   └─ oculta o marca unavailable si falta una métrica fiable
 ```
+
+---
+
+## 🚀 Quick start
+
+### 1. Requisitos
+
+- Node.js 20+
+- Python 3.11+
+- FFmpeg recomendado
+- Redis opcional para cola RQ
 
 ### 2. Backend
 
 ```bash
-# Create and activate virtual environment
-python -m venv .venv
+cd virality-analyzer
 
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
-# Windows Git Bash
-source .venv/Scripts/activate
-# macOS/Linux
+python -m venv .venv
 source .venv/bin/activate
 
-# Install core dependencies
+# Dependencias base
 pip install -e backend
 
-# Optional extras (install any combination)
-pip install -e "backend[audio]"       # librosa + soundfile (audio analysis)
-pip install -e "backend[speech]"      # faster-whisper (transcription)
-pip install -e "backend[queue]"       # redis + rq (queue workers)
-pip install -e "backend[all]"         # all of the above
+# Recomendado para desarrollo completo local
+pip install -e "backend[all,dev]"
 
-# Start the server (auto-reload)
+# Servidor API
 uvicorn app.main:app --reload --app-dir backend
 ```
 
-The API will be available at `http://127.0.0.1:8000`. Interactive docs at `/docs`.
+API local: `http://127.0.0.1:8000`  
+Swagger/OpenAPI: `http://127.0.0.1:8000/docs`
 
 ### 3. Frontend
 
@@ -114,132 +153,195 @@ npm install
 npm run dev
 ```
 
-The UI will be available at `http://localhost:5173`.
+UI local: `http://localhost:5173`
 
-### 4. Verify
+### 4. Redis opcional
+
+Por defecto el backend puede usar cola en thread local. Para Redis/RQ:
 
 ```bash
-# Backend health check
+docker compose up redis
+AUREA_QUEUE_BACKEND=redis python -m backend.run_worker
+```
+
+---
+
+## 🔌 API principal
+
+Todas las rutas viven bajo `/api/viral-intelligence/`.
+
+| Método | Ruta | Uso |
+|---|---|---|
+| `GET` | `/health` | Health check |
+| `GET` | `/analysis/mock` | Demo inicial mock para UI |
+| `POST` | `/analysis` | Upload de vídeo real |
+| `GET` | `/analysis/{id}` | Polling/resultado de análisis |
+| `GET` | `/analysis` | Listado de análisis |
+
+Ejemplo rápido:
+
+```bash
 curl http://127.0.0.1:8000/api/viral-intelligence/health
 
-# Get mock analysis (no video needed)
-curl http://127.0.0.1:8000/api/viral-intelligence/analysis/mock
+curl -F "file=@sample.mp4" \
+  http://127.0.0.1:8000/api/viral-intelligence/analysis
 
-# Upload a video for real analysis
-curl -F "file=@sample.mp4" http://127.0.0.1:8000/api/viral-intelligence/analysis
-
-# Check analysis status/result
 curl http://127.0.0.1:8000/api/viral-intelligence/analysis/<analysis_id>
 ```
 
-## API Endpoints
+---
 
-All routes under `/api/viral-intelligence/`:
+## 🧠 Qué analiza el pipeline
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Health check |
-| `GET` | `/analysis/mock` | Full mock analysis for UI dev |
-| `POST` | `/analysis` | Upload video → starts background analysis |
-| `GET` | `/analysis/{id}` | Get analysis status & results |
-| `GET` | `/analysis` | List all analyses |
+1. **Probe del vídeo**: duración, fps, resolución y streams con FFmpeg/OpenCV.
+2. **Frames**: sampling visual para movimiento, brillo y señales temporales.
+3. **Detección visual**: YOLO si está activo/disponible.
+4. **Emoción**: DeepFace para emoción dominante, arousal, valence e intensidad.
+5. **Audio**: energía, silencios y cambios con librosa.
+6. **Transcripción**: Whisper/faster-whisper si está activo.
+7. **Hooks de texto**: Qwen por defecto configurable; regex solo si se fuerza.
+8. **Pacing**: cortes reales con PySceneDetect si disponible.
+9. **Memorabilidad/Rewatch**: CLIP si disponible; si no, no se inventa dato para uploads.
+10. **Top clips**: ranking con señales reales e IA; razones descriptivas con Qwen cuando está disponible.
+11. **Insights**: explicaciones y recomendaciones accionables.
+12. **Provenance**: cada provider y métrica queda marcada como `ai`, `derived`, `heuristic`, `mock` o `unavailable`.
 
-### Analysis lifecycle
+---
 
-```
-POST /analysis (upload) → status: "processing", progress: 0.0
-GET  /analysis/{id}     → status: "processing", progress: 0.1–0.9
-GET  /analysis/{id}     → status: "completed",  progress: 1.0, full results
-```
+## 🏷️ Demo vs upload real
 
-The frontend polls every 1.5 seconds until `completed` or `failed`.
+La app soporta dos mundos separados:
 
-## Analysis Pipeline
+### Demo inicial
 
-When a video is uploaded, the backend dispatches a job (via RQ or thread fallback):
+- Puede usar `/analysis/mock`.
+- Puede mostrar datos sintéticos de muestra.
+- Se marca como `demo-mock` / `demo_mock`.
 
-1. **Probe** — `ffprobe` extracts duration, FPS, resolution, codecs (falls back to OpenCV)
-2. **Frame extraction** — samples one frame per second, saved as JPEG in `uploads/<id>/frames/`
-3. **Visual signals** — computes inter-frame differences (motion) and brightness per sample
-4. **Audio extraction** *(optional)* — FFmpeg exports mono WAV; librosa computes RMS energy, silence gaps, and energy changes per second
-5. **Timeline** — normalizes and smooths visual + audio signals into per-second virality/arousal/valence/retention scores
-6. **Clip ranking** — detects virality peaks, expands windows, ranks top 3 clip candidates
-7. **Speech transcription** *(optional)* — faster-whisper transcribes audio; text hook analyzer detects verbal hooks (curiosity gap, urgency, conflict, etc.)
-8. **Explanation engine** — generates insights from 8+ rule categories with timestamps and actionable recommendations
+### Upload manual real
 
-### Insight categories
+- Debe usar el vídeo subido por el usuario.
+- No puede caer a mock si falla el análisis.
+- No puede usar números hardcodeados en frontend.
+- Si una métrica no es fiable, se marca `unavailable`.
+- Si una métrica es fórmula, se marca `derived` o `composite`, no “IA pura”.
 
-| Rule | Detects |
-|------|---------|
-| Hook analysis | Opening strength (first 3 seconds) |
-| Pattern disruption | Virality spikes from scene changes |
-| Retention dips | Drop-off risk points |
-| Emotional arc | Arousal/valence dynamics |
-| Pacing | Fast/slow visual rhythm |
-| Clip reasoning | Why each clip was selected |
-| Overall score | Global score explanation |
-| Ending strength | Loop potential & closing impact |
-| Verbal hooks *(optional)* | Curiosity gap, urgency, conflict, questions in speech |
+---
 
-## Environment Variables
+## ⚙️ Variables de entorno útiles
 
-All prefixed with `AUREA_`:
+La configuración base de `Settings` usa prefijo `AUREA_`. Los providers nuevos aceptan tanto nombre directo como con prefijo `AUREA_` en muchos casos.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AUREA_ENVIRONMENT` | `local` | `local` / `staging` / `production` |
-| `AUREA_CORS_ORIGINS` | `localhost:5173` | Allowed CORS origins |
-| `AUREA_AUTH_ENABLED` | `false` | Enable Clerk JWT validation |
-| `AUREA_STORAGE_BACKEND` | `local` | `local` / `s3` |
-| `AUREA_QUEUE_BACKEND` | `thread` | `thread` (in-process) / `redis` (RQ workers) |
-| `AUREA_REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL |
-| `AUREA_WHISPER_ENABLED` | `false` | Enable speech transcription via faster-whisper |
-| `AUREA_WHISPER_MODEL` | `small` | Whisper model size (`tiny` / `base` / `small` / `medium` / `large`) |
-| `AUREA_AUDIO_ENABLED` | `true` | Enable audio feature analysis via librosa |
-| `AUREA_VISUAL_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `yolo` (YOLO fallback to heuristic if dependency missing) |
-| `AUREA_EMOTION_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `deepface` (DeepFace fallback to heuristic if dependency missing) |
-| `AUREA_ENABLE_TEMPORAL_ANALYSIS` | `false` | Enable temporal analysis stage (disabled by default) |
-| `AUREA_TEMPORAL_ANALYZER_PROVIDER` | `heuristic` | `heuristic` / `videomae` (VideoMAE fallback to heuristic if dependency missing) |
-| `AUREA_EXPLANATION_PROVIDER` | `heuristic` | `heuristic` / `qwen` (Qwen used only for explanations, never scoring) |
-| `AUREA_EXPLANATION_CACHE_ENABLED` | `true` | Enable in-memory explanation cache |
-| `VITE_API_BASE_URL` | (empty) | Backend URL for frontend |
-
-## Key Commands
+### Recomendado para análisis real enriquecido
 
 ```bash
-# ── Frontend ──
-cd frontend
-npm run dev          # Dev server with HMR
-npm run build        # Production build (TypeScript + Vite)
-npm run preview      # Preview production build
-npm run lint         # ESLint
-
-# ── Backend ──
-uvicorn app.main:app --reload --app-dir backend   # Dev server
-python -m pytest backend/tests                      # Run tests (when available)
-
-# ── Quick start (both) ──
-bash start.sh                                          # Launch backend + frontend together
-
-# ── Redis queue (optional) ──
-docker compose up redis                             # Start Redis via Docker
-AUREA_QUEUE_BACKEND=redis python -m backend.run_worker  # Start RQ worker
-
-# ── FFmpeg ──
-ffmpeg -version                                     # Verify installation
-ffprobe -v quiet -print_format json -show_format -show_streams video.mp4  # Manual probe
+VISUAL_ANALYZER_PROVIDER=yolo
+EMOTION_ANALYZER_PROVIDER=deepface
+ENABLE_TEMPORAL_ANALYSIS=true
+TEMPORAL_ANALYZER_PROVIDER=videomae
+EXPLANATION_PROVIDER=qwen
+TEXT_HOOK_ANALYZER=qwen
+MEMORABILITY_SCORER=clip
+CLIP_RANKER_ENABLED=true
+SCENE_DETECTION_ENABLED=true
+AUREA_WHISPER_ENABLED=true
+AUREA_AUDIO_ENABLED=true
 ```
 
-## Development Philosophy
+### Modelos ML opcionales para sustituir métricas derived
 
-1. **Contract first** — UI and backend connect via a stable JSON schema
-2. **Mock before block** — if FFmpeg/model/GPU is missing, use mock with explicit warning
-3. **MVP local-first** — nothing requires cloud, login, or API keys to function
-4. **Adapters, not giant refactors** — each AI model connects behind an existing interface
-5. **Continuous validation** — each phase ends with a minimal build/test/curl check
-6. **Always "Potential Virality Score"** — never guarantee virality
-7. **Integration-ready** — all decisions consider future embedding into AureaSuite
+Por defecto, retention y virality son métricas derivadas/composite. Si se quieren modelos entrenados propios:
 
-## License
+```bash
+RETENTION_PREDICTOR_PROVIDER=ml
+RETENTION_MODEL_PATH=/ruta/al/modelo_retention.joblib
+
+VIRALITY_PREDICTOR_PROVIDER=ml
+VIRALITY_MODEL_PATH=/ruta/al/modelo_virality.joblib
+```
+
+### Infraestructura
+
+| Variable | Default | Descripción |
+|---|---:|---|
+| `AUREA_ENVIRONMENT` | `local` | Entorno lógico |
+| `AUREA_CORS_ORIGINS` | localhost | Orígenes permitidos |
+| `AUREA_AUTH_ENABLED` | `false` | Placeholder de auth/Clerk |
+| `AUREA_STORAGE_BACKEND` | `local` | Storage local/S3 futuro |
+| `AUREA_QUEUE_BACKEND` | `thread` | `thread` o `redis` |
+| `AUREA_REDIS_URL` | `redis://localhost:6379/0` | Redis para RQ |
+| `VITE_API_BASE_URL` | vacío | URL backend desde frontend si hace falta |
+
+---
+
+## ✅ Validación y calidad
+
+Comandos principales:
+
+```bash
+# Backend
+.venv/bin/python -m pytest backend/tests
+
+# Frontend
+cd frontend
+npm run build
+npm run test:guardrails
+```
+
+Última validación conocida:
+
+```text
+Backend tests:        37 passed
+Frontend guardrails:  passed
+Frontend build:       passed
+```
+
+Los guardrails frontend comprueban que no se reintroduzcan fallbacks falsos en modo upload, por ejemplo:
+
+- attention duration hardcodeado,
+- retention/rewatch hardcodeados,
+- timeline default para uploads reales,
+- transcript inventado,
+- top clips inventados,
+- pacing/hook derivados en frontend sin datos backend.
+
+---
+
+## 🧪 Comandos de desarrollo
+
+```bash
+# Backend dev server
+uvicorn app.main:app --reload --app-dir backend
+
+# Backend tests
+.venv/bin/python -m pytest backend/tests
+
+# Frontend dev server
+cd frontend && npm run dev
+
+# Frontend production build
+cd frontend && npm run build
+
+# Frontend anti-regression guardrails
+cd frontend && npm run test:guardrails
+
+# Redis opcional
+docker compose up redis
+```
+
+---
+
+## 📌 Notas de producto
+
+- El score de viralidad debe entenderse como **“Potential Virality Score”**, no como garantía de viralidad.
+- Qwen se usa para explicaciones/razones/texto, no para falsear scores numéricos.
+- La demo puede ser mock; el upload real no.
+- Si un provider IA falla, el resultado debe ser parcial, `unavailable` o `failed`, pero no mock silencioso.
+- `status.md` contiene una auditoría detallada del estado IA/heurística/mock.
+- `ToDo.txt` contiene el plan operativo de endurecimiento del flujo real.
+
+---
+
+## 🔒 Licencia
 
 Private — All rights reserved.

@@ -56,28 +56,34 @@ export function analysisToSphereData(
   data: AnalysisResult,
   currentTime: number,
 ): SphereData {
+  const isDemo = data.analysis_source === "demo_mock";
   const timeline = data.timeline ?? [];
   const entry = findClosestEntry(timeline, currentTime);
 
-  const virality = entry?.virality ?? data.overall_virality_score ?? 0.5;
-  const arousal = entry?.arousal ?? 0.5;
-  const valence = entry?.valence ?? 0.5;
-  const retention = entry?.retention ?? data.retention_score ?? 0.5;
-  const emotionIntensity =
-    EMOTION_INTENSITY[data.dominant_emotion ?? "Neutral"] ?? 0.5;
+  const virality = entry?.virality ?? data.overall_virality_score ?? (isDemo ? 0.5 : 0);
+  const arousal = entry?.arousal ?? (isDemo ? 0.5 : 0);
+  const valence = entry?.valence ?? (isDemo ? 0.5 : 0);
+  const retention = entry?.retention ?? data.retention_score ?? (isDemo ? 0.5 : 0);
+  const emotionIntensity = isDemo
+    ? EMOTION_INTENSITY[data.dominant_emotion ?? "Neutral"] ?? 0.5
+    : data.emotion_intensity ?? null;
 
-  // Hook strength: average virality in first 5 seconds
+  // Hook strength: backend score when present. The average-virality fallback is
+  // allowed only for demo/mock data, never for uploaded videos.
   const hookEntries = timeline.filter((e) => e.time_seconds <= 5);
-  const hook =
+  const hookFallback = isDemo ? (
     hookEntries.length > 0
       ? hookEntries.reduce((sum, e) => sum + (e.virality ?? 0.5), 0) /
         hookEntries.length
-      : 0.5;
+      : 0.5
+  ) : null;
+  const hook = data.hook_score ?? hookFallback;
 
-  // Pacing: count labeled events as density proxy
+  // Pacing: backend scene-cut score when present. The label-density fallback is
+  // allowed only for demo/mock data, never for uploaded videos.
   const labelCount = timeline.filter((e) => e.label).length;
   const duration = data.video?.duration_seconds ?? 45;
-  const pacing = Math.min(1, (labelCount / (duration / 10)) * 0.6);
+  const pacing = data.pacing_score ?? (isDemo ? Math.min(1, (labelCount / (duration / 10)) * 0.6) : null);
 
   const engagement = (arousal + retention) / 2;
 
@@ -100,12 +106,18 @@ export function analysisToSphereData(
     { id: "arousal", name: "Arousal", intensity: arousal, position: REGION_POSITIONS.arousal },
     { id: "valence", name: "Valence", intensity: valence, position: REGION_POSITIONS.valence },
     { id: "retention", name: "Retention", intensity: retention, position: REGION_POSITIONS.retention },
-    { id: "emotion", name: "Emotion", intensity: emotionIntensity, position: REGION_POSITIONS.emotion },
-    { id: "hook", name: "Hook", intensity: hook, position: REGION_POSITIONS.hook },
-    { id: "pacing", name: "Pacing", intensity: pacing, position: REGION_POSITIONS.pacing },
   ];
+  if (emotionIntensity != null) {
+    regions.push({ id: "emotion", name: "Emotion", intensity: emotionIntensity, position: REGION_POSITIONS.emotion });
+  }
+  if (hook != null) {
+    regions.push({ id: "hook", name: "Hook", intensity: hook, position: REGION_POSITIONS.hook });
+  }
+  if (pacing != null) {
+    regions.push({ id: "pacing", name: "Pacing", intensity: pacing, position: REGION_POSITIONS.pacing });
+  }
 
-  return { regions, engagement, cognitiveLoad, emotion: emotionIntensity };
+  return { regions, engagement, cognitiveLoad, emotion: emotionIntensity ?? 0 };
 }
 
 export function intensityToColor(intensity: number): THREE.Color {

@@ -7,9 +7,14 @@ import uuid
 
 from ..schemas.analysis import (
     AnalysisResult,
+    AnalysisSource,
     AnalysisStatus,
     Insight,
     InsightSeverity,
+    MetricSource,
+    MetricSourceType,
+    ProviderExecutionStatus,
+    ProviderStatus,
     TimelineEntry,
     TopClip,
     VideoMeta,
@@ -84,6 +89,30 @@ def generate_mock_analysis(
     return AnalysisResult(
         id=analysis_id,
         status=AnalysisStatus.completed,
+        analysis_source=AnalysisSource.demo_mock,
+        provider_status=[
+            ProviderStatus(
+                name="demo",
+                provider="mock",
+                status=ProviderExecutionStatus.used,
+                is_ai=False,
+                message="Synthetic demo data for initial UI preview",
+            )
+        ],
+        metric_sources=[
+            MetricSource(metric=name, source_type=MetricSourceType.mock, providers=["mock"])
+            for name in [
+                "overall_virality_score",
+                "retention_score",
+                "rewatch_factor",
+                "dominant_emotion",
+                "emotion_intensity",
+                "attention_duration_seconds",
+                "timeline",
+                "top_clips",
+                "insights",
+            ]
+        ],
         progress=1.0,
         video=VideoMeta(
             filename=filename,
@@ -96,6 +125,8 @@ def generate_mock_analysis(
         retention_score=0.884,
         rewatch_factor=3.2,
         dominant_emotion="Surprise",
+        emotion_intensity=0.85,
+        attention_duration_seconds=8.4,
         timeline=_generate_timeline(duration),
         top_clips=[
             TopClip(

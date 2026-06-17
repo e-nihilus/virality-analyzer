@@ -1,0 +1,128 @@
+"""Memorability scorers used for rewatch-factor estimation."""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+import logging
+from pathlib import Path
+
+from ..schemas.analysis import TimelineEntry
+from .provider_exceptions import ProviderDependencyError
+
+logger = logging.getLogger(__name__)
+
+
+class MemorabilityScorer(ABC):
+    provider_name = "heuristic"
+
+    def validate_dependencies(self) -> None:
+        """Validate optional provider dependencies."""
+
+    @abstractmethod
+    def score_timeline(self, *, video_path: str, timeline: list[TimelineEntry]) -> list[float]:
+        """Return one memorability score in [0, 1] per timeline entry."""
+
+
+class HeuristicMemorabilityScorer(MemorabilityScorer):
+    provider_name = "heuristic"
+
+    def score_timeline(self, *, video_path: str, timeline: list[TimelineEntry]) -> list[float]:
+        if not timeline:
+            return []
+        scores: list[float] = []
+        for i, entry in enumerate(timeline):
+            virality = entry.virality or 0.0
+            arousal = entry.arousal or 0.0
+            prev_v = timeline[i - 1].virality if i > 0 else virality
+            novelty = abs(virality - (prev_v or 0.0))
+            scores.append(min(1.0, 0.55 * virality + 0.30 * arousal + 0.15 * novelty))
+        return scores
+
+
+class ClipMemorabilityScorer(MemorabilityScorer):
+    """CLIP prompt-similarity scorer for sampled video frames."""
+
+    provider_name = "clip"
+
+    _MODEL_ID = "openai/clip-vit-base-patch32"
+    _POSITIVE_PROMPTS = [
+        "a memorable viral moment",
+        "a surprising reveal",
+        "an emotional reaction",
+    ]
+    _NEGATIVE_PROMPTS = ["a boring static shot"]
+
+    def __init__(self, fallback: MemorabilityScorer | None = None) -> None:
+        # Keep the argument for compatibility with the factory, but do not use a
+        # heuristic runtime fallback: callers must know when CLIP failed so
+        # rewatch_factor can be marked unavailable instead of looking like AI.
+        self._model = None
+        self._processor = None
+
+    def validate_dependencies(self) -> None:
+        try:
+            import torch  # noqa: F401
+            import transformers  # noqa: F401
+            import PIL  # noqa: F401
+            import cv2  # noqa: F401
+        except ImportError as exc:
+            raise ProviderDependencyError(
+                "CLIP memorability scorer requested but required dependencies are not installed"
+            ) from exc
+
+    def _load_model(self) -> None:
+        if self._model is not None:
+            return
+        import torch
+        from transformers import CLIPModel, CLIPProcessor
+
+        logger.info("Loading CLIP model %s …", self._MODEL_ID)
+        self._processor = CLIPProcessor.from_pretrained(self._MODEL_ID)
+        self._model = CLIPModel.from_pretrained(self._MODEL_ID)
+        self._model = self._model.to("cuda" if torch.cuda.is_available() else "cpu")
+        self._model.eval()
+
+    def score_timeline(self, *, video_path: str, timeline: list[TimelineEntry]) -> list[float]:
+        self.validate_dependencies()
+        if not timeline or not Path(video_path).exists():
+            return []
+
+        try:
+            import cv2
+            import torch
+            from PIL import Image
+
+            self._load_model()
+            cap = cv2.VideoCapture(video_path)
+            fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+            scores: list[float] = []
+            prompts = self._POSITIVE_PROMPTS + self._NEGATIVE_PROMPTS
+
+            for entry in timeline:
+                frame_no = int((entry.time_seconds or 0.0) * fps)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
+                ok, frame = cap.read()
+                if not ok:
+                    scores.append(0.0)
+                    continue
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                image = Image.fromarray(rgb)
+                inputs = self._processor(
+                    text=prompts,
+                    images=image,
+                    return_tensors="pt",
+                    padding=True,
+                )
+                inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
+                with torch.no_grad():
+                    outputs = self._model(**inputs)
+                    probs = outputs.logits_per_image.softmax(dim=1)[0].detach().cpu().tolist()
+                positive = max(probs[: len(self._POSITIVE_PROMPTS)])
+                negative = probs[-1]
+                scores.append(round(max(0.0, min(1.0, positive - negative + 0.5)), 3))
+
+            cap.release()
+            return scores
+        except Exception:
+            logger.warning("CLIP memorability scoring failed", exc_info=True)
+            raise

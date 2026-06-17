@@ -27,7 +27,7 @@ export default function BrainSphere({
     const { regions } = analysisToSphereData(analysis, currentTime);
     // regions are scored 0..1; the shader sphere expects a 0..100 scale.
     const pct = (id: string) =>
-      Math.round((regions.find((r) => r.id === id)?.intensity ?? 0.5) * 100);
+      Math.round((regions.find((r) => r.id === id)?.intensity ?? 0) * 100);
 
     return {
       valence: pct("valence"),

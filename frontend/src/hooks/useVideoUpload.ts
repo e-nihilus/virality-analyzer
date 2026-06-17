@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { createAnalysis, fetchAnalysis } from "../api/analysisApi";
+import type { AnalysisResult } from "../types/analysis";
+import type { AnalysisSource } from "../stores/analysisStore";
 import { useAnalysisStore } from "../stores/analysisStore";
 
 function setVideoUrl(url: string | null) {
@@ -9,6 +11,16 @@ function setVideoUrl(url: string | null) {
 type UploadStatus = "idle" | "uploading" | "processing" | "done" | "error";
 
 const POLL_INTERVAL_MS = 1500;
+
+function sourceFromResult(result: AnalysisResult): AnalysisSource {
+  if (result.status === "failed" || result.analysis_source === "failed") {
+    return "failed";
+  }
+  if (result.analysis_source === "uploaded_partial") {
+    return "uploaded-partial";
+  }
+  return "uploaded-real";
+}
 
 export function useVideoUpload() {
   const [status, setStatus] = useState<UploadStatus>("idle");
@@ -42,14 +54,18 @@ export function useVideoUpload() {
             setProgress(100);
             useAnalysisStore.setState({
               analysis: result,
-              source: "backend",
+              source: sourceFromResult(result),
               error: null,
               uploading: false,
             });
             setStatus("done");
           } else if (result.status === "failed") {
             stopPolling();
-            useAnalysisStore.setState({ uploading: false });
+            useAnalysisStore.setState({
+              analysis: result,
+              source: "failed",
+              uploading: false,
+            });
             setError("Analysis failed. Please try a different video.");
             setStatus("error");
           }
@@ -89,7 +105,7 @@ export function useVideoUpload() {
         // Clear previous analysis and mark upload in progress
         useAnalysisStore.setState({
           analysis: null,
-          source: "backend",
+          source: "uploaded-real",
           error: null,
           uploading: true,
         });
@@ -108,18 +124,22 @@ export function useVideoUpload() {
           setProgress(100);
           useAnalysisStore.setState({
             analysis: result,
-            source: "backend",
+            source: sourceFromResult(result),
             error: null,
             uploading: false,
           });
-          setStatus("done");
+          setStatus(result.status === "failed" ? "error" : "done");
         } else {
           // Background processing — start polling
           pollAnalysis(id);
         }
       } catch (err) {
-        useAnalysisStore.setState({ uploading: false });
         const message = err instanceof Error ? err.message : "Upload failed";
+        useAnalysisStore.setState({
+          source: "failed",
+          uploading: false,
+          error: message,
+        });
         setError(message);
         setStatus("error");
       }
@@ -132,6 +152,7 @@ export function useVideoUpload() {
     const currentUrl = useAnalysisStore.getState().videoUrl;
     if (currentUrl) URL.revokeObjectURL(currentUrl);
     setVideoUrl(null);
+    useAnalysisStore.setState({ analysis: null, source: "demo-mock" });
     setStatus("idle");
     setProgress(0);
     setError(null);

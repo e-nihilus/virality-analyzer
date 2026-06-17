@@ -21,7 +21,7 @@ const BrainSphere = lazy(() => import("./components/sphere/BrainSphere"));
 const DEFAULT_VIDEO = "/videos/default.mp4";
 
 export default function App() {
-  const { analysis: data, loading, source } = useAnalysis();
+  const { analysis: data, loading, error, source } = useAnalysis();
   const videoUrl = useAnalysisStore((s) => s.videoUrl);
   const playbackTime = useAnalysisStore((s) => s.playbackTime);
   const isPlaying = useAnalysisStore((s) => s.isPlaying);
@@ -31,7 +31,17 @@ export default function App() {
   const { upload } = useVideoUpload();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const isDemo = source === "demo-mock";
   const activeVideo = videoUrl ?? DEFAULT_VIDEO;
+  const viralitySource = data?.metric_sources?.find(
+    (metricSource) => metricSource.metric === "overall_virality_score",
+  );
+  const topClipsSource = data?.metric_sources?.find(
+    (metricSource) => metricSource.metric === "top_clips",
+  );
+  const transcriptHooksSource = data?.metric_sources?.find(
+    (metricSource) => metricSource.metric === "transcript.hooks",
+  );
 
   const handleTimeChange = useCallback(
     (t: number) => {
@@ -81,6 +91,33 @@ export default function App() {
     return best;
   }, [data?.timeline, currentTime, peakEntry]);
 
+  if (source === "failed" || data?.status === "failed") {
+    return (
+      <div className="min-h-dvh bg-surface-container-lowest text-on-surface flex items-center justify-center p-6">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".mp4,.mov,.webm,.avi,.mkv"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        <div className="max-w-md w-full bg-surface-container p-6 rounded-xl border border-outline-variant/20 text-center space-y-4">
+          <h2 className="text-headline-md text-on-surface">Analysis failed</h2>
+          <p className="text-body-md text-on-surface-variant">
+            {error ?? "The uploaded video could not be analyzed. Please try a different video."}
+          </p>
+          <button
+            type="button"
+            onClick={handleUploadClick}
+            className="inline-flex items-center justify-center rounded-full bg-primary px-5 py-3 text-on-primary font-bold text-label-sm hover:opacity-90 transition-opacity"
+          >
+            Upload another video
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (loading || !data) {
     return (
       <div className="min-h-dvh bg-surface-container-lowest text-on-surface flex items-center justify-center">
@@ -111,12 +148,22 @@ export default function App() {
       <BottomNav />
 
       {/* Data source indicator */}
-      {source === "local-mock" && (
+      {source === "demo-mock" && (
         <div className="fixed top-16 right-0 lg:right-auto lg:left-20 z-30 m-2">
           <div className="flex items-center gap-1.5 bg-surface-container-high/80 backdrop-blur-md border border-outline-variant/20 rounded-md px-3 py-1.5">
             <WifiOff size={12} className="text-secondary" />
             <span className="text-mono-metric text-secondary">
-              Offline — local mock
+              Demo — mock data
+            </span>
+          </div>
+        </div>
+      )}
+      {source === "uploaded-partial" && (
+        <div className="fixed top-16 right-0 lg:right-auto lg:left-20 z-30 m-2">
+          <div className="flex items-center gap-1.5 bg-surface-container-high/80 backdrop-blur-md border border-outline-variant/20 rounded-md px-3 py-1.5">
+            <Sparkles size={12} className="text-tertiary" />
+            <span className="text-mono-metric text-tertiary">
+              Uploaded analysis — partial fallback
             </span>
           </div>
         </div>
@@ -128,8 +175,10 @@ export default function App() {
         <section className="lg:w-[45%] lg:border-r lg:border-outline-variant/10 lg:overflow-y-auto p-4 lg:p-8 space-y-6 lg:space-y-8">
           {/* Header with virality score */}
           <ViralityScore
-            score={data.overall_virality_score ?? 0}
+            score={data.overall_virality_score}
             timestamp={`T+00:${currentTime.toFixed(2)}`}
+            sourceType={viralitySource?.source_type}
+            sourceMessage={viralitySource?.message}
           />
 
           {/* Brain Sphere */}
@@ -155,9 +204,10 @@ export default function App() {
             valence={closestEntry?.valence}
             arousal={closestEntry?.arousal}
             emotion={data.dominant_emotion}
-            intensity={closestEntry?.arousal}
+            intensity={data.emotion_intensity}
             timestamp={`T+00:${currentTime.toFixed(2)}`}
             isPlaying={isPlaying}
+            allowDemoFallback={isDemo}
           />
 
           {/* Metric Cards */}
@@ -165,17 +215,19 @@ export default function App() {
             <MetricCard
               label="Dominant Emotion"
               value={data.dominant_emotion ?? "—"}
-              description="Triggered by abrupt scene transition at 0:12."
+              description={isDemo ? "Triggered by abrupt scene transition at 0:12." : undefined}
               icon={<Sparkles size={20} />}
               color="text-secondary"
             />
-            <MetricCard
-              label="Attention Duration"
-              value="8.4s"
-              description="Average focused gaze duration before peak."
-              icon={<Sparkles size={20} />}
-              color="text-tertiary"
-            />
+            {(isDemo || data.attention_duration_seconds != null) && (
+              <MetricCard
+                label="Attention Duration"
+                value={`${(data.attention_duration_seconds ?? 8.4).toFixed(1)}s`}
+                description={isDemo ? "Average focused gaze duration before peak." : "Derived from retention, face/person, audio/hooks and CLIP signals."}
+                icon={<Sparkles size={20} />}
+                color="text-tertiary"
+              />
+            )}
           </div>
 
           {/* AI Insights */}
@@ -186,6 +238,8 @@ export default function App() {
             <TranscriptPanel
               transcript={data.transcript}
               currentTime={currentTime}
+              hooksSourceType={transcriptHooksSource?.source_type}
+              hooksSourceMessage={transcriptHooksSource?.message}
             />
           )}
 
@@ -205,11 +259,21 @@ export default function App() {
                 </span>
               </div>
             </div>
-          ) : (
-            data.top_clips && data.top_clips.length > 0 && (
-              <ClipList clips={data.top_clips} analysisId={data.id} />
-            )
-          )}
+          ) : data.top_clips && data.top_clips.length > 0 ? (
+            <ClipList clips={data.top_clips} analysisId={data.id} />
+          ) : topClipsSource?.source_type === "unavailable" ? (
+            <div className="bg-surface-container p-6 rounded-xl border border-outline-variant/20 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4">
+                <Film className="w-9 h-9 text-on-surface-variant/30" />
+              </div>
+              <h3 className="text-headline-md mb-2 text-on-surface">
+                Top Clips
+              </h3>
+              <p className="text-body-md text-on-surface-variant">
+                {topClipsSource.message ?? "No disponible: CLIP no generó candidatos de clips."}
+              </p>
+            </div>
+          ) : null}
         </section>
 
         {/* ── Right Column: Video + Engagement (desktop 55%) ── */}
@@ -220,10 +284,11 @@ export default function App() {
           <div className="h-1/3 border-t border-outline-variant/10 bg-surface-container-lowest/80 backdrop-blur-sm overflow-hidden p-6">
             <EngagementGraph
               timeline={data.timeline}
-              retentionScore={(data.retention_score ?? 0.884) * 100}
-              rewatchFactor={data.rewatch_factor ?? 3.2}
+              retentionScore={data.retention_score == null ? null : data.retention_score * 100}
+              rewatchFactor={data.rewatch_factor ?? null}
               currentTime={currentTime}
               duration={duration}
+              allowDemoFallback={isDemo}
             />
           </div>
         </section>
@@ -232,10 +297,11 @@ export default function App() {
         <div className="lg:hidden px-4 pb-4">
           <EngagementGraph
             timeline={data.timeline}
-            retentionScore={(data.retention_score ?? 0.884) * 100}
-            rewatchFactor={data.rewatch_factor ?? 3.2}
+            retentionScore={data.retention_score == null ? null : data.retention_score * 100}
+            rewatchFactor={data.rewatch_factor ?? null}
             currentTime={currentTime}
             duration={duration}
+            allowDemoFallback={isDemo}
           />
         </div>
       </main>

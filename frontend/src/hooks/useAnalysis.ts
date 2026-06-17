@@ -6,10 +6,10 @@ export function useAnalysis() {
     useAnalysisStore();
 
   useEffect(() => {
-    if (!analysis && !loading && !uploading) {
+    if (!analysis && !loading && !uploading && source === "demo-mock") {
       loadAnalysis();
     }
-  }, [analysis, loading, uploading, loadAnalysis]);
+  }, [analysis, loading, source, uploading, loadAnalysis]);
 
   return { analysis, loading, error, source };
 }

@@ -10,7 +10,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { METRICS_LIST } from "./metrics";
 import type { MetricState } from "./metrics";
-import { AlertCircle, RotateCcw, ZoomIn, ZoomOut, Maximize2, Move } from "lucide-react";
+import { AlertCircle, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
 interface MetricsCanvasProps {
   metrics: MetricState;
@@ -334,7 +334,7 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
 
   // Interactive navigation states
   const [zoom, setZoom] = useState<number>(1);
-  const [autoRotate, setAutoRotate] = useState<boolean>(true);
+  const [autoRotate] = useState<boolean>(true);
   const [dragActive, setDragActive] = useState<boolean>(false);
   // Detect WebGL support once during render; when unsupported the canvas host
   // is never mounted, so the setup effect short-circuits on the containerRef guard.

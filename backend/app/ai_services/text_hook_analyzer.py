@@ -1,9 +1,14 @@
-"""Text hook analyser — detects verbal hooks (curiosity gap, urgency,
-conflict, etc.) from transcript segments using rule-based pattern matching."""
+"""Text hook analyser — detects verbal hooks from transcript segments.
+
+For uploaded videos, Qwen is the default contextual/multilingual classifier.
+Regex is only used when explicitly configured, so English-only patterns are not
+silently presented as AI hooks.
+"""
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -23,6 +28,8 @@ CONFLICT = "conflict"
 QUESTION = "question"
 COMMAND = "command"
 SURPRISE = "surprise"
+NONE = "none"
+_HOOK_TYPES = {CURIOSITY_GAP, URGENCY, CONFLICT, QUESTION, COMMAND, SURPRISE}
 
 # ─── Pattern definitions ────────────────────────────────────────────
 
@@ -108,7 +115,7 @@ def _confidence_for_match_count(count: int) -> float:
     return 0.6
 
 
-def detect_hooks(segments: list[TranscriptSegment]) -> list[TextHook]:
+def _detect_hooks_regex(segments: list[TranscriptSegment]) -> list[TextHook]:
     """Scan transcript segments for verbal hook patterns.
 
     Returns a list of :class:`TextHook` instances sorted by timestamp.
@@ -144,6 +151,123 @@ def detect_hooks(segments: list[TranscriptSegment]) -> list[TextHook]:
     hooks.sort(key=lambda h: h.timestamp)
     logger.debug("Detected %d text hooks across %d segments", len(hooks), len(segments))
     return hooks
+
+
+class _QwenHookClassifier:
+    _MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
+
+    def __init__(self) -> None:
+        self._model = None
+        self._tokenizer = None
+
+    def _load_model(self) -> None:
+        if self._model is not None:
+            return
+
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        logger.info("Loading Qwen hook classifier model %s …", self._MODEL_ID)
+        self._tokenizer = AutoTokenizer.from_pretrained(self._MODEL_ID, trust_remote_code=True)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._model = AutoModelForCausalLM.from_pretrained(
+            self._MODEL_ID,
+            dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            trust_remote_code=True,
+        )
+        self._model = self._model.to(device)
+        self._model.eval()
+
+    def classify(self, text: str) -> tuple[str, float]:
+        import torch
+
+        self._load_model()
+        prompt = (
+            "Classify this transcript segment as exactly one of: "
+            "curiosity_gap, urgency, conflict, question, command, surprise, none. "
+            "Then rate confidence from 0 to 1. Works in any language.\n"
+            f"Segment: {text!r}\n"
+            "Output only: label, confidence"
+        )
+        messages = [
+            {"role": "system", "content": "You classify short-form video verbal hooks."},
+            {"role": "user", "content": prompt},
+        ]
+        text_input = self._tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        inputs = self._tokenizer(text_input, return_tensors="pt")
+        inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            output_ids = self._model.generate(
+                **inputs,
+                max_new_tokens=32,
+                temperature=0.1,
+                do_sample=False,
+            )
+        generated_ids = output_ids[0][inputs["input_ids"].shape[1]:]
+        raw = self._tokenizer.decode(generated_ids, skip_special_tokens=True).strip().lower()
+        return _parse_qwen_hook_output(raw)
+
+
+_QWEN_CLASSIFIER: _QwenHookClassifier | None = None
+
+
+def _parse_qwen_hook_output(raw: str) -> tuple[str, float]:
+    label = NONE
+    for candidate in [*_HOOK_TYPES, NONE]:
+        if candidate in raw:
+            label = candidate
+            break
+
+    confidence = 0.0
+    match = re.search(r"(?:0(?:\.\d+)?|1(?:\.0+)?)", raw)
+    if match:
+        confidence = float(match.group(0))
+    elif label != NONE:
+        confidence = 0.65
+    return label, min(1.0, max(0.0, confidence))
+
+
+def classify_hooks_llm(segments: list[TranscriptSegment]) -> list[TextHook]:
+    """Classify transcript hooks with Qwen, falling back at caller level on errors."""
+    global _QWEN_CLASSIFIER
+
+    if _QWEN_CLASSIFIER is None:
+        _QWEN_CLASSIFIER = _QwenHookClassifier()
+
+    hooks: list[TextHook] = []
+    for segment in segments:
+        text = segment.text.strip()
+        if not text:
+            continue
+        label, confidence = _QWEN_CLASSIFIER.classify(text)
+        if label in _HOOK_TYPES and confidence >= 0.45:
+            hooks.append(TextHook(
+                text=text,
+                hook_type=label,
+                timestamp=segment.start,
+                confidence=confidence,
+            ))
+    hooks.sort(key=lambda h: h.timestamp)
+    logger.debug("Qwen detected %d text hooks across %d segments", len(hooks), len(segments))
+    return hooks
+
+
+def detect_hooks(segments: list[TranscriptSegment]) -> list[TextHook]:
+    """Detect verbal hooks using regex or Qwen according to TEXT_HOOK_ANALYZER."""
+    provider = (
+        os.environ.get("TEXT_HOOK_ANALYZER")
+        or os.environ.get("AUREA_TEXT_HOOK_ANALYZER")
+        or "qwen"
+    ).strip().lower()
+
+    if provider == "qwen":
+        return classify_hooks_llm(segments)
+    if provider == "regex":
+        return _detect_hooks_regex(segments)
+
+    raise ValueError(f"Unknown TEXT_HOOK_ANALYZER={provider}")
 
 
 # ─── Insight generation ─────────────────────────────────────────────

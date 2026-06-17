@@ -6,10 +6,28 @@ import logging
 from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import dataclass
+from importlib import metadata, util
 
 from .provider_exceptions import ProviderDependencyError
 
 logger = logging.getLogger(__name__)
+
+
+def _tf_keras_required_but_missing() -> bool:
+    """Return True for TensorFlow/Keras setups known to break RetinaFace imports."""
+    if util.find_spec("tf_keras") is not None:
+        return False
+    try:
+        version = metadata.version("tensorflow")
+    except metadata.PackageNotFoundError:
+        return False
+    parts = version.split(".")
+    try:
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+    except ValueError:
+        return False
+    return (major, minor) >= (2, 16)
 
 
 class EmotionAnalyzerAdapter(ABC):
@@ -80,21 +98,32 @@ class DeepFaceEmotionAnalyzer(EmotionAnalyzerAdapter):
     ) -> None:
         self._fallback = fallback or HeuristicEmotionAnalyzer()
         self._precomputed: str | None = None
-
-        if video_path is not None:
-            self._precomputed = self._analyze_video(video_path, interval_seconds)
+        self._video_path = video_path
+        self._interval_seconds = interval_seconds
 
     def validate_dependencies(self) -> None:
-        try:
-            import deepface  # noqa: F401
-        except ImportError as exc:
+        if _tf_keras_required_but_missing():
             raise ProviderDependencyError(
-                "DeepFace provider requested but 'deepface' is not installed"
+                "DeepFace provider requested but TensorFlow >= 2.16 requires the 'tf-keras' package"
+            )
+        try:
+            from deepface import DeepFace  # noqa: F401
+        except Exception as exc:
+            raise ProviderDependencyError(
+                "DeepFace provider requested but DeepFace dependencies are not available"
             ) from exc
 
     def dominant_emotion(self, *, timeline: list[object]) -> str:
         if self._precomputed is not None:
             return self._precomputed
+        if self._video_path is not None:
+            try:
+                self._precomputed = self._analyze_video(self._video_path, self._interval_seconds)
+            except Exception:
+                logger.warning("DeepFace dominant-emotion analysis failed — using heuristic", exc_info=True)
+                self._precomputed = None
+            if self._precomputed is not None:
+                return self._precomputed
         return self._fallback.dominant_emotion(timeline=timeline)
 
     # ------------------------------------------------------------------
@@ -111,7 +140,15 @@ class DeepFaceEmotionAnalyzer(EmotionAnalyzerAdapter):
             logger.warning("opencv-python is not installed – falling back to heuristic")
             return None
 
-        from deepface import DeepFace
+        if _tf_keras_required_but_missing():
+            logger.warning("DeepFace requires tf-keras with this TensorFlow version – falling back to heuristic")
+            return None
+
+        try:
+            from deepface import DeepFace
+        except Exception:
+            logger.warning("DeepFace dependencies are unavailable – falling back to heuristic")
+            return None
 
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
@@ -199,14 +236,16 @@ def analyze_frames_deepface(
 
     Returns ``None`` if deepface/cv2 are unavailable or all frames fail.
     """
-    try:
-        import deepface  # noqa: F401
-        import cv2
-    except ImportError:
-        logger.debug("deepface or cv2 not available for per-frame analysis")
+    if _tf_keras_required_but_missing():
+        logger.debug("DeepFace per-frame skipped because tf-keras is missing")
         return None
 
-    from deepface import DeepFace
+    try:
+        from deepface import DeepFace
+        import cv2
+    except Exception:
+        logger.debug("deepface or cv2 not available for per-frame analysis", exc_info=True)
+        return None
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from abc import ABC, abstractmethod
 
@@ -158,14 +159,13 @@ class QwenExplanationGenerator(ExplanationGenerator):
 
         logger.info("Loading Qwen model %s …", self._MODEL_ID)
         self._tokenizer = AutoTokenizer.from_pretrained(self._MODEL_ID, trust_remote_code=True)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         self._model = AutoModelForCausalLM.from_pretrained(
             self._MODEL_ID,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto" if torch.cuda.is_available() else None,
+            dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
             trust_remote_code=True,
         )
-        if not torch.cuda.is_available():
-            self._model = self._model.to("cpu")
+        self._model = self._model.to(device)
         self._model.eval()
         logger.info("Qwen model loaded successfully.")
 
@@ -227,6 +227,48 @@ class QwenExplanationGenerator(ExplanationGenerator):
             except Exception:
                 continue
         return insights if insights else None
+
+    def generate_clip_reasons(self, candidate_context: dict) -> list[str]:
+        """Generate 1-2 clip reasons using only supplied evidence."""
+        self.validate_dependencies()
+        try:
+            import torch
+
+            self._load_model()
+            prompt = (
+                "Describe why this exact video segment is a strong clip using only the provided evidence. "
+                "Return 1-2 concise reasons. Do not invent objects, faces, emotions, audio, or speech. "
+                "If evidence is weak, say which measured signal selected it.\n\n"
+                f"Evidence JSON:\n{json.dumps(candidate_context, ensure_ascii=False, sort_keys=True)}\n\n"
+                "Return only the reasons, one per line."
+            )
+            messages = [
+                {"role": "system", "content": "You write evidence-grounded short-form video clip reasons."},
+                {"role": "user", "content": prompt},
+            ]
+            text_input = self._tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            inputs = self._tokenizer(text_input, return_tensors="pt")
+            inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
+
+            with torch.no_grad():
+                output_ids = self._model.generate(
+                    **inputs,
+                    max_new_tokens=128,
+                    temperature=0.2,
+                    do_sample=False,
+                )
+
+            generated_ids = output_ids[0][inputs["input_ids"].shape[1]:]
+            raw_output = self._tokenizer.decode(generated_ids, skip_special_tokens=True)
+            reasons = _parse_clip_reason_lines(raw_output)
+            if reasons:
+                return reasons
+            raise ValueError("Qwen clip reason output was empty or unparsable")
+        except Exception:
+            logger.warning("Qwen clip reason generation failed", exc_info=True)
+            raise
 
     def generate(
         self,
@@ -293,3 +335,20 @@ class QwenExplanationGenerator(ExplanationGenerator):
             logger.warning("Qwen inference failed, falling back to heuristic.", exc_info=True)
 
         return self._fallback.generate(**fallback_kwargs)
+
+
+def _parse_clip_reason_lines(text: str) -> list[str]:
+    reasons: list[str] = []
+    for line in text.strip().splitlines():
+        cleaned = line.strip().lstrip("-•0123456789. )\t").strip()
+        if not cleaned:
+            continue
+        reasons.append(cleaned[:180])
+        if len(reasons) >= 2:
+            break
+    return reasons
+
+
+def generate_clip_reasons_qwen(candidate_context: dict) -> list[str]:
+    """Convenience entry point for Qwen-backed clip reasons."""
+    return QwenExplanationGenerator().generate_clip_reasons(candidate_context)

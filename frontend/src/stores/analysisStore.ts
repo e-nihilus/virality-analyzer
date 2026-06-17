@@ -3,11 +3,17 @@ import type { AnalysisResult } from "../types/analysis";
 import { fetchMockAnalysis } from "../api/analysisApi";
 import { mockAnalysis } from "../data/mockAnalysis";
 
+export type AnalysisSource =
+  | "demo-mock"
+  | "uploaded-real"
+  | "uploaded-partial"
+  | "failed";
+
 interface AnalysisState {
   analysis: AnalysisResult | null;
   loading: boolean;
   error: string | null;
-  source: "backend" | "local-mock";
+  source: AnalysisSource;
   videoUrl: string | null;
   uploading: boolean;
   playbackTime: number;
@@ -21,7 +27,7 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   analysis: null,
   loading: false,
   error: null,
-  source: "local-mock",
+  source: "demo-mock",
   videoUrl: null,
   uploading: false,
   playbackTime: 0,
@@ -33,14 +39,14 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
     set({ loading: true, error: null });
     try {
       const data = await fetchMockAnalysis();
-      set({ analysis: data, loading: false, source: "backend" });
+      set({ analysis: data, loading: false, source: "demo-mock" });
     } catch {
       // Fallback to local mock data when backend is unavailable
       console.warn("[Aurea] Backend unavailable — using local mock data");
       set({
         analysis: mockAnalysis,
         loading: false,
-        source: "local-mock",
+        source: "demo-mock",
         error: null,
       });
     }

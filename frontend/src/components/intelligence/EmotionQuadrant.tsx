@@ -4,24 +4,39 @@ interface EmotionQuadrantProps {
   valence?: number;
   arousal?: number;
   emotion?: string;
-  intensity?: number;
+  intensity?: number | null;
   timestamp?: string;
   isPlaying?: boolean;
+  allowDemoFallback?: boolean;
 }
 
 export default function EmotionQuadrant({
-  valence = 0.72,
-  arousal = 0.78,
-  emotion = "Surprise",
-  intensity = 0.88,
-  timestamp = "T+00:12.04",
+  valence,
+  arousal,
+  emotion,
+  intensity,
+  timestamp,
   isPlaying = true,
+  allowDemoFallback = false,
 }: EmotionQuadrantProps) {
+  const displayValence = valence ?? (allowDemoFallback ? 0.72 : null);
+  const displayArousal = arousal ?? (allowDemoFallback ? 0.78 : null);
+  const displayEmotion = emotion ?? (allowDemoFallback ? "Surprise" : "No disponible");
+  const displayIntensity = intensity ?? (allowDemoFallback ? displayArousal : null);
+
+  if (displayValence == null || displayArousal == null || displayIntensity == null) {
+    return (
+      <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-surface-container-low border border-outline-variant/10 flex items-center justify-center text-label-sm text-on-surface-variant">
+        Emotion data no disponible
+      </div>
+    );
+  }
+
   // Map 0-1 values to percentage positions with padding (10% inset)
   const padding = 10;
   const range = 100 - padding * 2;
-  const left = padding + valence * range;
-  const bottom = padding + arousal * range;
+  const left = padding + displayValence * range;
+  const bottom = padding + displayArousal * range;
 
   return (
     <div
@@ -106,13 +121,15 @@ export default function EmotionQuadrant({
 
           {/* Tooltip */}
           <div className="absolute top-6 left-6 glass-panel p-3 rounded-lg border border-primary/30 w-40">
-            <span className="block font-bold text-primary">{emotion}</span>
+            <span className="block font-bold text-primary">{displayEmotion}</span>
             <span className="block text-label-sm text-on-surface-variant">
-              Intensity: {intensity.toFixed(2)}
+              Intensity: {displayIntensity.toFixed(2)}
             </span>
-            <span className="block text-label-sm text-on-surface-variant">
-              {timestamp}
-            </span>
+            {timestamp && (
+              <span className="block text-label-sm text-on-surface-variant">
+                {timestamp}
+              </span>
+            )}
           </div>
         </div>
       </div>

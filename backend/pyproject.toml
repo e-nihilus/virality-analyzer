@@ -20,12 +20,15 @@ audio = [
 speech = [
     "faster-whisper>=1.0",
 ]
+scene = [
+    "scenedetect[opencv]>=0.6",
+]
 queue = [
     "redis>=5.0",
     "rq>=1.16",
 ]
 all = [
-    "aurea-backend[audio,speech,queue]",
+    "aurea-backend[audio,speech,scene,queue]",
 ]
 dev = [
     "pytest>=8.0",

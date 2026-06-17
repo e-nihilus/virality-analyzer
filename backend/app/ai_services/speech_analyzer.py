@@ -34,12 +34,17 @@ class TranscriptResult:
 
 def whisper_available() -> bool:
     """Return True when faster-whisper is importable AND the feature flag is on."""
-    enabled = os.environ.get("AUREA_WHISPER_ENABLED", "false").lower() in (
+    enabled = os.environ.get("AUREA_WHISPER_ENABLED", "true").lower() in (
         "1",
         "true",
         "yes",
     )
     return _WHISPER_IMPORTABLE and enabled
+
+
+def video_has_audio(video_path: str) -> bool:
+    """Return True when the video appears to contain an audio stream."""
+    return _video_has_audio(video_path)
 
 
 def _video_has_audio(video_path: str) -> bool:

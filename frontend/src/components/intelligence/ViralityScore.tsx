@@ -1,17 +1,22 @@
 import clsx from "clsx";
 
 interface ViralityScoreProps {
-  score: number;
+  score?: number | null;
   emotion?: string;
   timestamp?: string;
+  sourceType?: "ai" | "derived" | "heuristic" | "mock" | "unavailable";
+  sourceMessage?: string;
 }
 
 export default function ViralityScore({
   score,
   emotion = "Emotional Intelligence",
   timestamp,
+  sourceType,
+  sourceMessage,
 }: ViralityScoreProps) {
-  const percentage = Math.round(score * 100);
+  const percentage = score == null ? null : Math.round(score * 100);
+  const badgeLabel = sourceType === "ai" ? "AI score" : sourceType === "mock" ? "Demo mock" : "Composite score";
 
   return (
     <section className="flex flex-col gap-1 lg:flex-row lg:justify-between lg:items-start">
@@ -35,7 +40,7 @@ export default function ViralityScore({
           <span className="lg:hidden flex items-center gap-2">
             <span className="w-2 h-2 bg-secondary rounded-full pulse-dot" />
             <span className="text-display-lg-mobile text-secondary font-bold">
-              {percentage}%
+              {percentage == null ? "—" : `${percentage}%`}
             </span>
           </span>
 
@@ -45,9 +50,22 @@ export default function ViralityScore({
               Virality Score
             </span>
             <span className="text-primary text-display-lg leading-none">
-              {percentage}%
+              {percentage == null ? "—" : `${percentage}%`}
             </span>
           </span>
+          {sourceType && (
+            <span
+              className={clsx(
+                "rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest",
+                sourceType === "ai"
+                  ? "border-primary/40 text-primary"
+                  : "border-outline-variant/40 text-on-surface-variant",
+              )}
+              title={sourceMessage}
+            >
+              {badgeLabel}
+            </span>
+          )}
         </div>
 
         {/* Mobile label below */}

@@ -68,6 +68,7 @@ function generateTimeline(): TimelineEntry[] {
 export const mockAnalysis: AnalysisResult = {
   id: "ana_7f3a9b2e-01d4-4c8a-b5e6-9d1f0a3c7e42",
   status: "completed",
+  analysis_source: "demo_mock",
   progress: 100,
   video: {
     filename: "neural_core_analysis.mp4",
@@ -80,6 +81,8 @@ export const mockAnalysis: AnalysisResult = {
   retention_score: 0.884,
   rewatch_factor: 3.2,
   dominant_emotion: "Surprise",
+  emotion_intensity: 0.85,
+  attention_duration_seconds: 8.4,
   timeline: generateTimeline(),
   top_clips: [
     {

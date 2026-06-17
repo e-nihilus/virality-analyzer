@@ -17,6 +17,16 @@ from .explanation_generator import (
     QwenExplanationGenerator,
 )
 from .provider_exceptions import ProviderDependencyError
+from .memorability_scorer import (
+    ClipMemorabilityScorer,
+    HeuristicMemorabilityScorer,
+    MemorabilityScorer,
+)
+from .retention_predictor import (
+    HeuristicRetentionPredictor,
+    MLRetentionPredictor,
+    RetentionPredictor,
+)
 from .temporal_analyzer import (
     HeuristicTemporalAnalyzer,
     TemporalAnalyzerAdapter,
@@ -26,6 +36,11 @@ from .visual_analyzer import (
     HeuristicVisualAnalyzer,
     VisualAnalyzerAdapter,
     YoloVisualAnalyzer,
+)
+from .virality_predictor import (
+    DerivedViralityPredictor,
+    MLViralityPredictor,
+    ViralityPredictor,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,8 +82,52 @@ def get_visual_analyzer() -> VisualAnalyzerAdapter:
     return heuristic
 
 
+def get_retention_predictor() -> RetentionPredictor:
+    provider = _env_flag("RETENTION_PREDICTOR_PROVIDER", "heuristic")
+    heuristic = HeuristicRetentionPredictor()
+
+    if provider == "heuristic":
+        return heuristic
+    if provider == "ml":
+        return _validate_or_fallback(MLRetentionPredictor(), heuristic)
+
+    logger.warning("Unknown RETENTION_PREDICTOR_PROVIDER=%s. Falling back to heuristic.", provider)
+    return heuristic
+
+
+def get_virality_predictor() -> ViralityPredictor:
+    provider = _env_flag("VIRALITY_PREDICTOR_PROVIDER", "derived")
+    derived = DerivedViralityPredictor()
+
+    if provider in {"derived", "derived_formula", "heuristic"}:
+        return derived
+    if provider == "ml":
+        return _validate_or_fallback(MLViralityPredictor(), derived)
+    if provider == "qwen":
+        logger.warning(
+            "VIRALITY_PREDICTOR_PROVIDER=qwen is qualitative only; using derived score for numeric virality."
+        )
+        return derived
+
+    logger.warning("Unknown VIRALITY_PREDICTOR_PROVIDER=%s. Falling back to derived.", provider)
+    return derived
+
+
+def get_memorability_scorer() -> MemorabilityScorer:
+    provider = _env_flag("MEMORABILITY_SCORER", "clip")
+    heuristic = HeuristicMemorabilityScorer()
+
+    if provider == "heuristic":
+        return heuristic
+    if provider == "clip":
+        return _validate_or_fallback(ClipMemorabilityScorer(fallback=heuristic), heuristic)
+
+    logger.warning("Unknown MEMORABILITY_SCORER=%s. Falling back to heuristic.", provider)
+    return heuristic
+
+
 def get_emotion_analyzer(*, video_path: str | None = None) -> EmotionAnalyzerAdapter:
-    provider = _env_flag("EMOTION_ANALYZER_PROVIDER", "heuristic")
+    provider = _env_flag("EMOTION_ANALYZER_PROVIDER", "deepface")
     heuristic = HeuristicEmotionAnalyzer()
 
     if provider == "heuristic":
@@ -85,6 +144,10 @@ def get_emotion_analyzer(*, video_path: str | None = None) -> EmotionAnalyzerAda
 
 def temporal_analysis_enabled() -> bool:
     return _env_flag("ENABLE_TEMPORAL_ANALYSIS", "false") in {"1", "true", "yes"}
+
+
+def scene_detection_enabled() -> bool:
+    return _env_flag("SCENE_DETECTION_ENABLED", "true") in {"1", "true", "yes"}
 
 
 def get_temporal_analyzer(*, video_path: str | None = None) -> TemporalAnalyzerAdapter:

@@ -9,20 +9,22 @@ interface TimelinePoint {
 
 interface EngagementGraphProps {
   timeline?: TimelinePoint[];
-  retentionScore?: number;
-  rewatchFactor?: number;
+  retentionScore?: number | null;
+  rewatchFactor?: number | null;
   currentTime?: number;
   duration?: number;
   className?: string;
+  allowDemoFallback?: boolean;
 }
 
 const DEFAULT_PATH = "M0 120 Q 150 110, 250 40 T 450 60 T 650 20 T 850 50 T 1000 30";
 
 function buildPathFromTimeline(timeline: TimelinePoint[], duration: number): string {
-  if (timeline.length === 0) return DEFAULT_PATH;
+  if (timeline.length === 0) return "";
+  const safeDuration = duration > 0 ? duration : Math.max(...timeline.map((p) => p.time_seconds), 1);
 
   const points = timeline.map((p) => {
-    const x = (p.time_seconds / duration) * 1000;
+    const x = (p.time_seconds / safeDuration) * 1000;
     const value = p.arousal ?? p.virality ?? p.retention ?? 0;
     const y = 120 - value * 120;
     return { x, y };
@@ -41,6 +43,7 @@ function buildPathFromTimeline(timeline: TimelinePoint[], duration: number): str
 
 function findPeak(timeline: TimelinePoint[], duration: number): { x: number; y: number } | null {
   if (timeline.length === 0) return null;
+  const safeDuration = duration > 0 ? duration : Math.max(...timeline.map((p) => p.time_seconds), 1);
 
   let maxVal = -1;
   let maxPoint: TimelinePoint | null = null;
@@ -56,29 +59,41 @@ function findPeak(timeline: TimelinePoint[], duration: number): { x: number; y: 
   if (!maxPoint) return null;
 
   return {
-    x: (maxPoint.time_seconds / duration) * 1000,
+    x: (maxPoint.time_seconds / safeDuration) * 1000,
     y: 120 - maxVal * 120,
   };
 }
 
-const TIME_LABELS = ["0:00", "0:10", "0:20", "0:30", "0:40", "0:50"];
+function formatTime(seconds: number): string {
+  const safeSeconds = Math.max(0, seconds);
+  const m = Math.floor(safeSeconds / 60);
+  const s = Math.floor(safeSeconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function timeLabels(duration: number): string[] {
+  const safeDuration = duration > 0 ? duration : 0;
+  return [0, 0.25, 0.5, 0.75, 1].map((ratio) => formatTime(safeDuration * ratio));
+}
 
 export default function EngagementGraph({
   timeline,
-  retentionScore = 88.4,
-  rewatchFactor = 3.2,
-  currentTime = 12,
-  duration = 50,
+  retentionScore,
+  rewatchFactor,
+  currentTime = 0,
+  duration = 0,
   className,
+  allowDemoFallback = false,
 }: EngagementGraphProps) {
   const hasData = timeline && timeline.length > 0;
-  const curvePath = hasData ? buildPathFromTimeline(timeline, duration) : DEFAULT_PATH;
+  const curvePath = hasData ? buildPathFromTimeline(timeline, duration) : allowDemoFallback ? DEFAULT_PATH : "";
   const areaPath = `${curvePath} L1000 120 L0 120 Z`;
   const playheadX = duration > 0 ? (currentTime / duration) * 1000 : 0;
 
   const peak = hasData ? findPeak(timeline, duration) : null;
   // Default peak for the hardcoded path (~26.6% at the high point)
-  const peakIndicator = peak ?? { x: 650, y: 20 };
+  const peakIndicator = peak ?? (allowDemoFallback ? { x: 650, y: 20 } : null);
+  const labels = timeLabels(duration || 0);
 
   return (
     <div className={clsx("glass-panel rounded-xl p-6 space-y-4", className)}>
@@ -97,70 +112,78 @@ export default function EngagementGraph({
         <div className="flex items-center gap-2">
           <span className="text-label-sm text-on-surface-variant">Retention</span>
           <span className="text-headline-md text-primary">
-            {retentionScore.toFixed(1)}%
+            {retentionScore == null ? "No disponible" : `${retentionScore.toFixed(1)}%`}
           </span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-label-sm text-on-surface-variant">Rewatches</span>
           <span className="text-headline-md text-tertiary">
-            {rewatchFactor.toFixed(1)}x
+            {rewatchFactor == null ? "No disponible" : `${rewatchFactor.toFixed(1)}x`}
           </span>
         </div>
       </div>
 
       {/* SVG chart */}
       <div className="relative">
-        <svg
-          viewBox="0 0 1000 120"
-          className="w-full h-auto"
-          preserveAspectRatio="none"
-        >
-          <defs>
-            <linearGradient id="engagement-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--color-primary)" stopOpacity="0.3" />
-              <stop offset="100%" stopColor="var(--color-primary)" stopOpacity="0" />
-            </linearGradient>
-          </defs>
+        {curvePath ? (
+          <svg
+            viewBox="0 0 1000 120"
+            className="w-full h-auto"
+            preserveAspectRatio="none"
+          >
+            <defs>
+              <linearGradient id="engagement-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--color-primary)" stopOpacity="0.3" />
+                <stop offset="100%" stopColor="var(--color-primary)" stopOpacity="0" />
+              </linearGradient>
+            </defs>
 
-          {/* Area fill */}
-          <path d={areaPath} fill="url(#engagement-fill)" />
+            {/* Area fill */}
+            <path d={areaPath} fill="url(#engagement-fill)" />
 
-          {/* Curve line */}
-          <path
-            d={curvePath}
-            fill="none"
-            stroke="var(--color-primary)"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+            {/* Curve line */}
+            <path
+              d={curvePath}
+              fill="none"
+              stroke="var(--color-primary)"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
 
-          {/* Peak indicator */}
-          <circle
-            cx={peakIndicator.x}
-            cy={peakIndicator.y}
-            r="6"
-            fill="var(--color-secondary)"
-            stroke="var(--color-surface)"
-            strokeWidth="2"
-          />
+            {/* Peak indicator */}
+            {peakIndicator && (
+              <circle
+                cx={peakIndicator.x}
+                cy={peakIndicator.y}
+                r="6"
+                fill="var(--color-secondary)"
+                stroke="var(--color-surface)"
+                strokeWidth="2"
+              />
+            )}
 
-          {/* Playhead line */}
-          <line
-            x1={playheadX}
-            y1="0"
-            x2={playheadX}
-            y2="120"
-            stroke="var(--color-on-surface)"
-            strokeWidth="1.5"
-            strokeDasharray="4 3"
-            opacity="0.5"
-          />
-        </svg>
+            {/* Playhead line */}
+            <line
+              x1={playheadX}
+              y1="0"
+              x2={playheadX}
+              y2="120"
+              stroke="var(--color-on-surface)"
+              strokeWidth="1.5"
+              strokeDasharray="4 3"
+              opacity="0.5"
+            />
+          </svg>
+        ) : (
+          <div className="h-[120px] flex items-center justify-center rounded-lg border border-outline-variant/20 text-label-sm text-on-surface-variant">
+            Timeline no disponible
+          </div>
+        )}
 
         {/* X-axis labels */}
         <div className="flex justify-between mt-2">
-          {TIME_LABELS.map((label) => (
+          {labels.map((label) => (
             <span
               key={label}
               className="text-mono-metric text-on-surface-variant"

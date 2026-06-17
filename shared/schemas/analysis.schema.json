@@ -7,6 +7,34 @@
   "properties": {
     "id": { "type": "string" },
     "status": { "type": "string", "enum": ["pending", "processing", "completed", "failed"] },
+    "analysis_source": { "type": "string", "enum": ["demo_mock", "uploaded_real", "uploaded_partial", "failed"] },
+    "provider_status": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "provider", "status", "is_ai"],
+        "properties": {
+          "name": { "type": "string" },
+          "provider": { "type": "string" },
+          "status": { "type": "string", "enum": ["used", "fallback", "disabled", "failed"] },
+          "is_ai": { "type": "boolean" },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "metric_sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["metric", "source_type"],
+        "properties": {
+          "metric": { "type": "string" },
+          "source_type": { "type": "string", "enum": ["ai", "derived", "heuristic", "mock", "unavailable"] },
+          "providers": { "type": "array", "items": { "type": "string" } },
+          "message": { "type": "string" }
+        }
+      }
+    },
     "progress": { "type": "number", "minimum": 0, "maximum": 1 },
     "video": {
       "type": "object",
@@ -21,9 +49,30 @@
     },
     "overall_virality_score": { "type": "number", "minimum": 0, "maximum": 1 },
     "retention_score": { "type": "number", "minimum": 0, "maximum": 1 },
-    "rewatch_factor": { "type": "number" },
+    "rewatch_factor": { "type": ["number", "null"] },
     "action_recognition_score": { "type": "number", "minimum": 0, "maximum": 1 },
-    "dominant_emotion": { "type": "string" },
+    "hook_score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "hook_evidence": {
+      "type": ["object", "null"],
+      "properties": {
+        "person_detected_first_5s": { "type": "boolean" },
+        "face_arousal_avg_first_5s": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "text_hook_first_5s": {
+          "type": ["object", "null"],
+          "properties": {
+            "text": { "type": "string" },
+            "hook_type": { "type": "string" },
+            "timestamp": { "type": "number" },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "audio_energy_first_5s": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "pacing_score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "dominant_emotion": { "type": ["string", "null"] },
+    "emotion_intensity": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "attention_duration_seconds": { "type": ["number", "null"], "minimum": 0 },
     "timeline": {
       "type": "array",
       "items": {
