@@ -148,26 +148,6 @@ export default function App() {
       <BottomNav />
 
       {/* Data source indicator */}
-      {source === "demo-mock" && (
-        <div className="fixed top-16 right-0 lg:right-auto lg:left-20 z-30 m-2">
-          <div className="flex items-center gap-1.5 bg-surface-container-high/80 backdrop-blur-md border border-outline-variant/20 rounded-md px-3 py-1.5">
-            <WifiOff size={12} className="text-secondary" />
-            <span className="text-mono-metric text-secondary">
-              Demo — mock data
-            </span>
-          </div>
-        </div>
-      )}
-      {source === "uploaded-partial" && (
-        <div className="fixed top-16 right-0 lg:right-auto lg:left-20 z-30 m-2">
-          <div className="flex items-center gap-1.5 bg-surface-container-high/80 backdrop-blur-md border border-outline-variant/20 rounded-md px-3 py-1.5">
-            <Sparkles size={12} className="text-tertiary" />
-            <span className="text-mono-metric text-tertiary">
-              Uploaded analysis — partial fallback
-            </span>
-          </div>
-        </div>
-      )}
 
       {/* Main content */}
       <main className="pt-16 pb-24 lg:pb-0 lg:ml-20 lg:h-[calc(100dvh-64px)] lg:flex lg:overflow-hidden">
