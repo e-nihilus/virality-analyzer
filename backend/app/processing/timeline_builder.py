@@ -81,6 +81,9 @@ def build_timeline(
     audio_energy: list[float] | None = None,
     audio_silence: list[bool] | None = None,
     audio_energy_change: list[float] | None = None,
+    audio_voice_intensity: list[float] | None = None,
+    audio_beat_drop: list[float] | None = None,
+    audio_laughter_scream: list[float] | None = None,
     face_valence: list[float] | None = None,
     face_arousal: list[float] | None = None,
     detection_density: list[float] | None = None,
@@ -116,6 +119,7 @@ def build_timeline(
     # Audio signals are already normalized [0, 1] from audio_analyzer
     smooth_audio = _smooth(audio_energy, window=3) if has_audio else None
     smooth_audio_change = _smooth(audio_energy_change, window=3) if audio_energy_change else None
+    smooth_voice_intensity = _smooth(audio_voice_intensity, window=3) if audio_voice_intensity else None
 
     entries: list[TimelineEntry] = []
     retention_values_so_far: list[float] = []
@@ -130,6 +134,10 @@ def build_timeline(
         energy = smooth_audio[i] if smooth_audio and i < len(smooth_audio) else 0.0
         is_silent = audio_silence[i] if audio_silence and i < len(audio_silence) else False
         e_change = smooth_audio_change[i] if smooth_audio_change and i < len(smooth_audio_change) else 0.0
+        voice_intensity = smooth_voice_intensity[i] if smooth_voice_intensity and i < len(smooth_voice_intensity) else 0.0
+        beat_drop = audio_beat_drop[i] if audio_beat_drop and i < len(audio_beat_drop) else 0.0
+        laughter_scream = audio_laughter_scream[i] if audio_laughter_scream and i < len(audio_laughter_scream) else 0.0
+        audio_event_boost = max(beat_drop, laughter_scream)
         f_valence = face_valence[i] if face_valence and i < len(face_valence) else None
         f_arousal = face_arousal[i] if face_arousal and i < len(face_arousal) else None
         det_density = detection_density[i] if detection_density and i < len(detection_density) else 0.0
@@ -149,10 +157,12 @@ def build_timeline(
         # Arousal: blend face-based with motion-based when DeepFace data is available
         ramp = min(1.0, 0.3 + 0.4 * (1 - math.exp(-t / 8.0)))
         if has_face:
-            motion_arousal = ramp * 0.5 + motion * 0.3 + (energy * 0.2 if has_audio else motion * 0.1)
+            audio_arousal = max(energy, voice_intensity, audio_event_boost)
+            motion_arousal = ramp * 0.45 + motion * 0.25 + (audio_arousal * 0.3 if has_audio else motion * 0.1)
             arousal = min(1.0, 0.4 * motion_arousal + 0.6 * f_arousal)
         elif has_audio:
-            arousal = min(1.0, ramp * 0.5 + motion * 0.3 + energy * 0.2)
+            audio_arousal = max(energy, voice_intensity, audio_event_boost)
+            arousal = min(1.0, ramp * 0.45 + motion * 0.25 + audio_arousal * 0.3)
         else:
             arousal = min(1.0, ramp * 0.6 + motion * 0.4)
 
@@ -192,6 +202,10 @@ def build_timeline(
             label = "Pattern disruption"
         elif has_audio and is_silent and i > 1 and not (audio_silence and audio_silence[i - 1]):
             label = "Silence gap"
+        elif has_audio and beat_drop > 0.0:
+            label = "Beat drop"
+        elif has_audio and laughter_scream > 0.0:
+            label = "Voice intensity spike"
         elif i > 2 and retention < 0.6 and retention_values_so_far and retention < min(retention_values_so_far[-3:]):
             label = "Retention dip"
         elif i > 0 and motion > 0.55 and smooth_diffs[i - 1] < 0.3:

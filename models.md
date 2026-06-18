@@ -1,255 +1,311 @@
-# Modelos de IA — Qué analizan y dónde se reflejan en la web
+# Modelos de IA — Qué datos manda cada modelo a la interfaz
 
-## Resumen visual rápido
+Fecha de revisión: 2026-06-18
+
+Este documento explica, para cada elemento visible de la web, **de dónde sale su
+valor**: qué modelo o fórmula lo produce y por qué campo del `AnalysisResult`
+viaja hasta la UI. Ejemplos que se responden aquí: de dónde saca la esfera el
+valor de `retention`, cómo se miden las emociones del Engagement Graph, etc.
+
+Conceptos de procedencia que usa la app (`metric_sources[].source_type`):
+
+- **ai** — predicción de un modelo de IA real (DeepFace, CLIP, Qwen, Whisper, VideoMAE).
+- **derived** — fórmula compuesta sobre señales reales (no un modelo entrenado).
+- **heuristic** — reglas simples sin IA.
+- **unavailable** — no se pudo calcular; la UI lo oculta o muestra "No disponible".
+
+En **modo demo** (`source = "demo-mock"`) se permiten valores de relleno. En
+**modo uploaded** los valores son reales o se ocultan; nunca se inventan.
+
+---
+
+## Resumen visual del flujo
 
 ```
 Video subido
   │
-  ├─► OpenCV ──────────── frame_diffs, brightness ──────────────────► Timeline ──► Engagement Graph
-  ├─► YOLOv8n ─────────── detection_density por frame ─────────────► Timeline (virality +12%)
-  ├─► DeepFace ────────── valence/arousal per-frame (circumplex) ──► Timeline (arousal 60%, valence 70%)
-  │                       + emoción dominante global ──────────────► Emotion Quadrant + Esfera
-  ├─► VideoMAE ────────── action recognition ──────────────────────► MetricCard (action score)
-  ├─► Qwen2.5 ─────────── insights en lenguaje natural ───────────► Insights Panel
-  ├─► librosa (audio) ──── energía, silencios ─────────────────────► Timeline ──► Engagement Graph
-  └─► Whisper ─────────── transcripción + hooks ───────────────────► Transcript Panel
+  ├─ OpenCV ─────── frame_diffs, brightness (1 frame/seg) ─────┐
+  ├─ librosa ────── rms_energy, silence, energy_change ────────┤
+  ├─ YOLOv8n ────── detection_density (objetos/personas) ──────┤
+  ├─ DeepFace ───── valence/arousal por frame + dominante ─────┤
+  │                                                             ▼
+  │                                            build_timeline()  →  timeline[]
+  │                                            RetentionPredictor →  retention
+  │                                                             │
+  │   ┌─────────────────────────────────────────────────────────┘
+  │   ▼
+  │  timeline[] (virality, arousal, valence, retention por segundo)
+  │   ├──► Esfera 3D (virality/arousal/valence/retention)
+  │   ├──► Engagement Graph (curva de arousal + retención)
+  │   ├──► Emotion Quadrant (valence/arousal + emoción)
+  │   └──► Virality Score (promedio de virality)
+  │
+  ├─ CLIP ───────── memorability por segundo ──► rewatch_factor + ranking Top Clips
+  ├─ Qwen2.5 ────── insights + razones de clips + clasificación de hooks
+  ├─ Whisper ────── transcripción + segmentos ──► Transcript Panel
+  └─ VideoMAE ───── action_recognition_score (opcional) ──► MetricCard
 ```
 
 ---
 
-## 1. OpenCV — Señales visuales base
+# PARTE A — Qué produce cada modelo
+
+## 1. OpenCV — Señales visuales base (no IA)
 
 | | |
 |---|---|
 | **Librería** | OpenCV (`cv2`) |
-| **Qué analiza** | Cada frame muestreado del video (1 por segundo) |
-| **Qué produce** | `frame_diffs` (movimiento entre frames) y `brightness` (brillo medio) |
-| **Dónde se refleja** | Son la base de **todo**. Alimentan `build_timeline()` que genera los valores `virality`, `arousal`, `valence` y `retention` por segundo. Estos datos aparecen en: |
-| | • **Engagement Graph** — la curva SVG de arousal/retention |
-| | • **Esfera 3D** — regiones virality, arousal, valence, retention |
-| | • **Virality Score** — el porcentaje grande (promedio de `virality`) |
-| **Archivos** | `backend/app/processing/frame_extractor.py` |
-| | `backend/app/ai_services/visual_analyzer.py` → `HeuristicVisualAnalyzer` |
+| **Qué analiza** | 1 frame muestreado por segundo (decodifica el vídeo **una sola vez** y reutiliza esos frames para YOLO/DeepFace). |
+| **Qué produce** | `frame_diffs` (movimiento entre frames muestreados) y `brightness` (brillo medio). |
+| **A dónde va** | Entra en `build_timeline()` y en el `RetentionPredictor`. Es la base de `virality`, `arousal`, `valence` y `retention`. |
+| **Procedencia** | No-IA (señal real del vídeo). |
+| **Archivos** | `backend/app/processing/frame_extractor.py`, `visual_analyzer.py` → `HeuristicVisualAnalyzer` |
 
----
-
-## 2. YOLOv8n — Detección de objetos (Fase 14.1)
-
-| | |
-|---|---|
-| **Modelo** | `yolov8n.pt` (YOLOv8-nano, ~6MB, se descarga en primer uso) |
-| **Librería** | `ultralytics` |
-| **Qué analiza** | Cada frame muestreado del video. Detecta objetos reales: personas, coches, animales, comida, etc. |
-| **Qué produce** | Lista de detecciones por frame: |
-| | • `frame_index` — en qué frame se encontró |
-| | • `class_name` — tipo de objeto (person, car, dog, cup...) |
-| | • `confidence` — confianza del modelo (filtrado ≥ 0.4) |
-| | • `bbox` — coordenadas de la caja [x1, y1, x2, y2] |
-| **Dónde se refleja** | Las detecciones se almacenan en `VisualAnalysis.detections`. Internamente enriquecen el análisis visual. Los `frame_diffs` y `brightness` que se calculan junto con YOLO siguen alimentando: |
-| | • **Esfera 3D** — regiones `virality` y `pacing` reaccionan a la actividad visual |
-| | • **Engagement Graph** — la curva refleja la actividad detectada |
-| **Env var** | `VISUAL_ANALYZER_PROVIDER=yolo` |
-| **Fallback** | Si YOLO falla → solo datos heurísticos (OpenCV) |
-| **Archivos** | `backend/app/ai_services/visual_analyzer.py` → `YoloVisualAnalyzer` |
-
----
-
-## 3. DeepFace — Análisis facial de emociones (Fase 14.2)
-
-| | |
-|---|---|
-| **Modelo** | DeepFace con backend por defecto (VGG-Face / Facenet según config) |
-| **Librería** | `deepface` |
-| **Qué analiza** | Frames muestreados cada 2 segundos. Busca caras y clasifica la expresión facial dominante. |
-| **Qué produce** | Una emoción dominante para el video completo, mapeada al vocabulario de la app: |
-| | • DeepFace `happy` → **Joy** |
-| | • DeepFace `sad` → **Sadness** |
-| | • DeepFace `angry` / `fear` / `disgust` → **Tension** |
-| | • DeepFace `surprise` → **Surprise** |
-| | • DeepFace `neutral` → **Neutral** |
-| | También puede producir **Excitement** (vía heurístico si arousal + valence altos) |
-| **Dónde se refleja** | |
-| | • **Emotion Quadrant** — el punto brillante en el grid valence/arousal muestra la emoción. El label (ej. "Surprise") y la posición en el cuadrante (Exhilaration, Anger, Calm, Depression) dependen de la emoción detectada. |
-| | • **Esfera 3D** — la región `emotion` (color verde lima) cambia de intensidad según la emoción. Usa un mapa de intensidades: Anger=0.9, Surprise=0.85, Fear=0.8, Joy=0.75, Disgust=0.7, Sadness=0.6, Neutral=0.3. |
-| | • **Virality Score header** — el título "Active Analysis" muestra la emoción dominante como subtítulo. |
-| | • **Insights Panel** — los insights del explanation engine usan `dominant_emotion` para generar consejos sobre el arco emocional. |
-| **Env var** | `EMOTION_ANALYZER_PROVIDER=deepface` |
-| **Fallback** | Si no hay caras o DeepFace falla → calcula emoción desde promedios de arousal/valence del timeline |
-| **Archivos** | `backend/app/ai_services/emotion_analyzer.py` → `DeepFaceEmotionAnalyzer` |
-
----
-
-## 4. VideoMAE — Reconocimiento de acciones (Fase 14.3)
-
-| | |
-|---|---|
-| **Modelo** | `MCG-NJU/videomae-base-finetuned-kinetics` (~350MB, HuggingFace) |
-| **Librería** | `torch` + `transformers` |
-| **Qué analiza** | 16 frames uniformemente distribuidos del video completo. Clasifica qué tipo de acción humana ocurre usando 400 clases de Kinetics-400 (bailar, cocinar, saltar, hablar, etc.). |
-| **Qué produce** | |
-| | • `action_score` — confianza (0-1) de la predicción top |
-| | • `label` — nombre de la acción reconocida (ej. "playing basketball") |
-| **Dónde se refleja** | |
-| | • **`action_recognition_score`** en el JSON — campo dedicado en `AnalysisResult`. Solo aparece si temporal está habilitado. |
-| | • **MetricCard** — se puede mostrar como tarjeta con el score de acción. |
-| | • **Esfera 3D** — indirectamente contribuye al pacing y actividad general del video. |
-| **Env vars** | `ENABLE_TEMPORAL_ANALYSIS=true` + `TEMPORAL_ANALYZER_PROVIDER=videomae` |
-| **Fallback** | Si VideoMAE falla → calcula score como ratio de frames con virality > 0.55 |
-| **Archivos** | `backend/app/ai_services/temporal_analyzer.py` → `VideoMAETemporalAnalyzer` |
-
----
-
-## 5. Qwen2.5-1.5B-Instruct — Explicaciones con LLM (Fase 14.4)
-
-| | |
-|---|---|
-| **Modelo** | `Qwen/Qwen2.5-1.5B-Instruct` (~3GB, HuggingFace) |
-| **Librería** | `torch` + `transformers` |
-| **Qué analiza** | No analiza el video directamente. Recibe un resumen estructurado de métricas: virality score, retention, duración, emoción dominante, y top clips. Con eso genera texto. |
-| **Qué produce** | 3 insights accionables en lenguaje natural, cada uno con: |
-| | • `title` — título corto (ej. "Weak Opening Hook") |
-| | • `description` — explicación detallada del hallazgo |
-| | • `action` — recomendación concreta para mejorar |
-| | • `severity` — high / medium / low |
-| **Dónde se refleja** | |
-| | • **Insights Panel (desktop)** — tarjeta "AI Insights & Hooks" con barras de color por severidad: |
-| |   - 🟣 `high` → barra primaria (púrpura) + icono ✨ |
-| |   - 🟠 `medium` → barra secundaria + icono 🧠 |
-| |   - ⚪ `low` → barra gris + icono 🔒 |
-| | • **Insights Panel (mobile)** — tarjetas individuales con iconos de severidad |
-| | • Cada insight muestra opcionalmente un timestamp (`T+0:12`) y una acción recomendada con icono 💡 |
-| **IMPORTANTE** | Qwen **nunca** modifica los scores de viralidad. Solo genera texto explicativo. Los números siempre vienen de los módulos heurísticos. |
-| **Env var** | `EXPLANATION_PROVIDER=qwen` |
-| **Fallback** | Si el LLM genera texto no parseable → usa el motor de reglas heurístico (`explanation_engine.py`) |
-| **Archivos** | `backend/app/ai_services/explanation_generator.py` → `QwenExplanationGenerator` |
-
----
-
-## 6. librosa — Análisis de audio (opcional)
+## 2. librosa — Señales de audio (no IA)
 
 | | |
 |---|---|
 | **Librería** | `librosa` |
-| **Qué analiza** | El audio extraído del video (WAV) |
-| **Qué produce** | |
-| | • `rms_energy` — energía sonora por intervalo |
-| | • `silence_mask` — dónde hay silencios |
-| | • `energy_change` — cambios bruscos de volumen |
-| **Dónde se refleja** | Se fusiona en el **Timeline**. Los cambios de energía y silencios afectan los valores de `arousal` y `virality` de cada `TimelineEntry`. Esto impacta: |
-| | • **Engagement Graph** — la curva refleja picos de audio |
-| | • **Esfera 3D** — la región `arousal` reacciona al audio |
+| **Qué analiza** | El audio extraído del vídeo (WAV), por intervalos de 1s. |
+| **Qué produce** | `rms_energy` (energía sonora), `silence_mask` (silencios), `energy_change` (cambios bruscos de volumen). |
+| **A dónde va** | Se fusiona en `build_timeline()` (sube `arousal`/`virality` en picos, baja `retention` en silencios) y es feature del `RetentionPredictor`. |
+| **Procedencia** | No-IA (señal real). Activo por defecto (`AUREA_AUDIO_ENABLED=true`). |
 | **Archivos** | `backend/app/ai_services/audio_analyzer.py` |
 
----
-
-## 7. Whisper — Transcripción de voz (opcional)
+## 3. YOLOv8n — Detección de objetos
 
 | | |
 |---|---|
-| **Modelo** | OpenAI Whisper |
-| **Librería** | `openai-whisper` |
-| **Qué analiza** | El audio del video — speech-to-text |
-| **Qué produce** | |
-| | • `segments[]` — fragmentos de texto con timestamps (start, end, text) |
-| | • `full_text` — transcripción completa |
-| | • `hooks[]` — text hooks detectados con tipo, timestamp y confianza |
-| **Tipos de hooks** | `curiosity_gap`, `urgency`, `conflict`, `question`, `command`, `surprise` |
-| **Dónde se refleja** | |
-| | • **Transcript Panel** — muestra cada segmento sincronizado con el playback del video, resaltando el segmento activo. Los hooks aparecen como badges con su tipo. |
-| | • **Insights Panel** — los hooks detectados generan insights adicionales que se añaden a la lista. |
-| **Archivos** | `backend/app/ai_services/speech_analyzer.py` |
-| | `backend/app/ai_services/text_hook_analyzer.py` |
+| **Modelo** | `yolov8n.pt` (YOLOv8-nano, ~6 MB) |
+| **Qué analiza** | Cada frame muestreado. Detecta personas, animales, coches, comida, etc. |
+| **Qué produce** | Detecciones por frame: `class_name`, `confidence` (≥0.4), `bbox`, `frame_index`, `sample_index`, `time_seconds`. De ahí se agrega `detection_density` por segundo. |
+| **A dónde va** | `detection_density` sube `virality` (+12% × densidad) y `retention` en `build_timeline()`/`RetentionPredictor`; genera **labels** del timeline ("Person enters scene", "Scene change"…); alimenta el `hook_score` y el ranking de Top Clips. |
+| **Procedencia** | IA. Solo activo con `VISUAL_ANALYZER_PROVIDER=yolo` (si no, el visual es heurístico sin detecciones). |
+| **Archivos** | `backend/app/ai_services/visual_analyzer.py` → `YoloVisualAnalyzer` |
+
+## 4. DeepFace — Emoción facial (valence / arousal / dominante)
+
+| | |
+|---|---|
+| **Modelo** | DeepFace (clasificador de emoción facial) |
+| **Qué analiza** | Los frames muestreados (1/seg). En cada frame obtiene la distribución de emociones. |
+| **Qué produce** | Por frame: `valence` y `arousal` continuos (modelo circumplejo de Russell sobre las probabilidades) + la emoción dominante del frame. De ahí se derivan: **timeline.valence/arousal**, **`dominant_emotion`** (la más frecuente, submuestreada cada 2s) y **`emotion_intensity`** (promedio de arousal). |
+| **Mapa de emociones** | `happy`→Joy · `sad`→Sadness · `angry`/`fear`/`disgust`→Tension · `surprise`→Surprise · `neutral`→Neutral |
+| **A dónde va** | Esfera (regiones arousal/valence/emotion), **Emotion Quadrant**, **curva del Engagement Graph** (la curva es principalmente arousal), tarjeta **Dominant Emotion**, e insights. |
+| **Procedencia** | IA. Activo por defecto (`EMOTION_ANALYZER_PROVIDER=deepface`). Si falla, fusión heurística marcada en `provider_status`. La emoción dominante se deriva de los resultados por-frame (sin segunda pasada de vídeo). |
+| **Archivos** | `backend/app/ai_services/emotion_analyzer.py` |
+
+## 5. RetentionPredictor — Curva de retención
+
+| | |
+|---|---|
+| **Tipo** | Fusión de señales (default) o modelo ML serializado (opcional). |
+| **Qué analiza** | Una fila de features por segundo: `motion` (OpenCV), `face_arousal`/`face_valence` (DeepFace), `detection_density` (YOLO), `audio_energy`/`is_silent` (librosa). |
+| **Qué produce** | `retention` por segundo (0-1). `retention_score` = promedio del timeline. |
+| **Fórmula (heurístico)** | Baseline no lineal que cae más al principio, + 0.14·motion + 0.14·detección + 0.10·arousal facial + 0.08·audio − penalización por silencio/escena vacía, suavizado contra el segundo anterior. |
+| **A dónde va** | Esfera (región **retention**), Engagement Graph (cabecera "Retention %"), cálculo de `attention_duration_seconds`. |
+| **Procedencia** | **derived** por defecto. `ai` solo si `RETENTION_PREDICTOR_PROVIDER=ml` con un modelo en `RETENTION_MODEL_PATH`. |
+| **Archivos** | `backend/app/ai_services/retention_predictor.py` |
+
+## 6. CLIP — Memorabilidad (rewatch + ranking de clips)
+
+| | |
+|---|---|
+| **Modelo** | `openai/clip-vit-base-patch32` |
+| **Qué analiza** | El frame de cada segundo, comparándolo con prompts ("a memorable viral moment", "a surprising reveal", "an emotional reaction" vs "a boring static shot"). |
+| **Qué produce** | Un `memorability_score` por segundo. De ahí: **`rewatch_factor`** = proporción de segundos con score > 0.62; y los **scores semánticos** que rankean los Top Clips. |
+| **A dónde va** | Engagement Graph (cabecera "Rewatches"), **Top Clips** (ranking). |
+| **Procedencia** | IA. Activo por defecto (`MEMORABILITY_SCORER=clip`, `CLIP_RANKER_ENABLED=true`). Si CLIP falla, `rewatch_factor=null` y la UI lo oculta (nada de `3.2x` en uploaded). |
+| **Archivos** | `backend/app/ai_services/memorability_scorer.py`, `processing/clip_ranker.py` |
+
+## 7. Qwen2.5-1.5B-Instruct — Texto (insights, razones, hooks)
+
+| | |
+|---|---|
+| **Modelo** | `Qwen/Qwen2.5-1.5B-Instruct` |
+| **Qué analiza** | No analiza el vídeo. Recibe métricas/evidencias ya calculadas y genera texto. Tres usos: (a) insights, (b) razones de cada Top Clip, (c) clasificación de hooks del transcript. |
+| **Qué produce** | Insights `{title, description, action, severity}`; `reasons` por clip; tipo de hook (`curiosity_gap`, `urgency`, `conflict`, `question`, `command`, `surprise`). |
+| **A dónde va** | **Insights Panel**, razones en **Top Clips**, badges de hook en **Transcript Panel**. |
+| **IMPORTANTE** | Qwen **nunca** modifica los scores numéricos; solo produce texto. |
+| **Procedencia** | Insights: `ai` solo si `EXPLANATION_PROVIDER=qwen` (default heurístico). Hooks: `ai` con `TEXT_HOOK_ANALYZER=qwen` (default). El mismo modelo se carga una sola vez y se comparte. |
+| **Archivos** | `explanation_generator.py`, `text_hook_analyzer.py` |
+
+## 8. Whisper — Transcripción de voz
+
+| | |
+|---|---|
+| **Modelo** | faster-whisper (`small` por defecto), en GPU si está disponible. |
+| **Qué analiza** | El audio del vídeo (speech-to-text). |
+| **Qué produce** | `segments[]` (`start`, `end`, `text`), `full_text`, y los `hooks[]` (clasificados por Qwen). |
+| **A dónde va** | **Transcript Panel** (segmentos sincronizados con el playback + badges de hook). Los hooks también suman insights. |
+| **Procedencia** | IA. Activo por defecto (`AUREA_WHISPER_ENABLED=true`). Sin audio → `transcript=null` y el panel se oculta. |
+| **Archivos** | `speech_analyzer.py`, `text_hook_analyzer.py` |
+
+## 9. VideoMAE — Reconocimiento de acciones (opcional)
+
+| | |
+|---|---|
+| **Modelo** | `MCG-NJU/videomae-base-finetuned-kinetics` |
+| **Qué analiza** | 16 frames repartidos por el vídeo; clasifica la acción (Kinetics-400). |
+| **Qué produce** | `action_recognition_score` (0-1) + etiqueta de acción. |
+| **A dónde va** | Campo `action_recognition_score` del JSON / MetricCard. |
+| **Procedencia** | IA. **Desactivado por defecto**; requiere `ENABLE_TEMPORAL_ANALYSIS=true` + `TEMPORAL_ANALYZER_PROVIDER=videomae`. |
+| **Archivos** | `temporal_analyzer.py` → `VideoMAETemporalAnalyzer` |
+
+## 10. PySceneDetect — Pacing (opcional)
+
+| | |
+|---|---|
+| **Librería** | `scenedetect` |
+| **Qué analiza** | Frecuencia de cortes de escena del vídeo. |
+| **Qué produce** | `pacing_score` (0-1) derivado de la densidad de cortes. |
+| **A dónde va** | Esfera (región **pacing**). |
+| **Procedencia** | derived. Activo por defecto (`SCENE_DETECTION_ENABLED=true`). Si no hay cortes/falla → `pacing_score=null` y la región se oculta. |
+| **Archivos** | `processing/scene_detector.py` |
 
 ---
 
-## Elementos visuales de la web y qué datos consumen
+# PARTE B — De dónde saca su valor cada elemento de la UI
 
-### 🔮 Esfera 3D (`BrainSphere` / `MetricsCanvas`)
+## 🔮 Esfera 3D (`BrainSphere` / `sphereUtils.ts`)
 
-La esfera tiene 7 regiones que brillan según las métricas en tiempo real:
+Cada segundo busca la `TimelineEntry` más cercana a `currentTime` y enciende las
+regiones. En modo uploaded, las regiones cuyo dato es `null` **no se dibujan**.
 
-| Región | Color | Dato que consume | Fuente |
-|---|---|---|---|
-| Virality | Rosa (`#FF00E5`) | `timeline[t].virality` | OpenCV + YOLO |
-| Arousal | Naranja (`#FF3D00`) | `timeline[t].arousal` | OpenCV + librosa |
-| Valence | Cyan (`#00F2FF`) | `timeline[t].valence` | OpenCV + librosa |
-| Retention | Rosa (`#FF00E5`) | `timeline[t].retention` | OpenCV + librosa |
-| Emotion | Verde (`#14FF00`) | `dominant_emotion` → intensity map | DeepFace |
-| Hook | Ámbar (`#FFD600`) | Promedio virality primeros 5s | OpenCV |
-| Pacing | Índigo (`#AD00FF`) | Densidad de labels en timeline | OpenCV |
+| Región | Campo que consume | Producido por |
+|---|---|---|
+| **Virality** | `timeline[t].virality` | Fórmula `build_timeline` (OpenCV motion + audio + brillo + densidad YOLO) → *derived* |
+| **Arousal** | `timeline[t].arousal` | DeepFace (60%) + motion/audio (40%) → *ai/derived* |
+| **Valence** | `timeline[t].valence` | DeepFace (70%) + brillo (30%) → *ai/derived* |
+| **Retention** | `timeline[t].retention` | **RetentionPredictor** (fusión motion+DeepFace+YOLO+audio) → *derived* |
+| **Emotion** | `data.emotion_intensity` | DeepFace (promedio de arousal). *En demo* usa una tabla fija por emoción. |
+| **Hook** | `data.hook_score` | Backend `_compute_hook_score` (persona YOLO + arousal DeepFace + hook de texto + audio en los primeros 5s). *En demo* cae a promedio de virality 5s. |
+| **Pacing** | `data.pacing_score` | PySceneDetect. *En demo* cae a densidad de labels. |
 
-La esfera se actualiza segundo a segundo según `currentTime` del reproductor de video.
+> **¿De dónde saca la esfera la retention?** De `timeline[t].retention`, que produce
+> el **RetentionPredictor** combinando movimiento (OpenCV), arousal/valence facial
+> (DeepFace), densidad de objetos (YOLO) y energía/silencio de audio (librosa).
 
-### 📊 Engagement Graph (`EngagementGraph`)
+## 📊 Engagement Graph (`EngagementGraph.tsx`)
 
-- **Curva SVG** — dibuja `arousal` (o `virality`/`retention`) de cada `TimelineEntry`
-- **Retention %** — muestra `retention_score` (promedio del timeline)
-- **Rewatches** — muestra `rewatch_factor` (peak/avg virality)
-- **Playhead** — línea vertical que sigue `currentTime`
-- **Peak indicator** — punto en el máximo de la curva
-- **Datos fuente**: OpenCV + librosa fusionados en `build_timeline()`
+| Elemento | Campo que consume | Producido por |
+|---|---|---|
+| **Curva** | `timeline[t].arousal` (cae a virality/retention si falta) | DeepFace + motion/audio → la curva es básicamente la **curva de arousal** |
+| **Pico** | máximo de arousal de la curva | igual que la curva |
+| **Retention %** | `retention_score × 100` | RetentionPredictor (promedio) |
+| **Rewatches (x)** | `rewatch_factor` | CLIP (proporción de segundos memorables) |
+| **Playhead / eje X** | `currentTime` y `duration` reales | metadata del vídeo (eje X dinámico) |
 
-### 🎯 Emotion Quadrant (`EmotionQuadrant`)
+> **¿Cómo se miden las emociones del Engagement Graph?** La curva representa el
+> **arousal** (activación emocional) por segundo. Ese arousal se mide con DeepFace
+> sobre las caras (probabilidades de emoción → arousal vía modelo circumplejo de
+> Russell), mezclado con el movimiento (OpenCV) y la energía de audio (librosa).
+> La cabecera correlaciona esa curva de arousal con los picos de retención.
 
-- **Eje X** — Valence (negativa ← → positiva)
-- **Eje Y** — Arousal (bajo ↓ → alto ↑)
-- **Punto luminoso** — posición según valence/arousal del timeline actual
-- **Label** — muestra `dominant_emotion` (ej. "Surprise")
-- **Cuadrantes** — Exhilaration (↗), Anger (↖), Depression (↙), Calm (↘)
-- **Datos fuente**: Timeline (valence, arousal) + DeepFace (dominant_emotion)
+## 🎯 Emotion Quadrant (`EmotionQuadrant.tsx`)
 
-### 🏆 Virality Score (`ViralityScore`)
+| Elemento | Campo | Producido por |
+|---|---|---|
+| **Eje X (Valence)** | `closestEntry.valence` | DeepFace |
+| **Eje Y (Arousal)** | `closestEntry.arousal` | DeepFace |
+| **Punto luminoso** | (valence, arousal) del segundo actual | DeepFace |
+| **Label de emoción** | `data.dominant_emotion` | DeepFace (emoción más frecuente) |
+| **Intensidad** | `data.emotion_intensity` | DeepFace (promedio de arousal) |
+| **Cuadrantes** | Exhilaration ↗ · Anger ↖ · Depression ↙ · Calm ↘ | etiquetas fijas del grid |
 
-- **Porcentaje grande** — `overall_virality_score × 100` (promedio de virality del timeline)
-- **Subtítulo** — muestra la emoción dominante como "Active Analysis"
-- **Datos fuente**: Promedio del timeline + DeepFace
+## 🏆 Virality Score (`ViralityScore.tsx`)
 
-### 💡 Insights Panel (`InsightsPanel`)
+| Elemento | Campo | Producido por |
+|---|---|---|
+| **Porcentaje grande** | `overall_virality_score × 100` | promedio de `timeline.virality` (fórmula derived) |
+| **Badge de procedencia** | `metric_sources` de virality | "AI score" / "Composite score" / "Demo mock" |
 
-- **Lista de insights** — cada uno con título, descripción, acción recomendada
-- **Severidad visual** — barra de color (high=primario, medium=secundario, low=gris)
-- **Timestamps** — `T+0:12` clickeable en cada insight
-- **Datos fuente**: Qwen2.5 LLM (o motor de reglas heurístico como fallback)
+## 💡 Insights Panel (`InsightsPanel.tsx`)
 
-### 🎬 Top Clips (`ClipList`)
+| Elemento | Campo | Producido por |
+|---|---|---|
+| **Lista de insights** | `data.insights[]` | Qwen (si `EXPLANATION_PROVIDER=qwen`) o motor de reglas heurístico |
+| **Severidad / icono** | `insight.severity` | high → púrpura ✨ · medium → 🧠 · low → 🔒 |
+| **Acción / timestamp** | `insight.action`, `insight.timestamp` | el mismo generador |
 
-- **3 mejores segmentos** — start/end timestamps, score %, razones
-- **Botones Export/Download** — recorta el clip con FFmpeg
-- **Score color** — ≥70% primario, ≥50% secundario, <50% gris
-- **Datos fuente**: `rank_clips()` sobre el timeline (OpenCV + librosa)
+## 🎬 Top Clips (`ClipList.tsx`)
 
-### 📝 Transcript Panel (`TranscriptPanel`)
+| Elemento | Campo | Producido por |
+|---|---|---|
+| **Segmento** | `clip.start_seconds` – `clip.end_seconds` | `rank_clips()` sobre el timeline |
+| **Score %** | `clip.score × 100` | ranking con scores semánticos de **CLIP** |
+| **Razones** | `clip.reasons[]` | Qwen (si activo) o razones estructuradas por evidencia (YOLO/DeepFace/audio/hooks) |
+| **Export/Download** | recorte físico | FFmpeg sobre el vídeo original |
 
-- **Segmentos de texto** — sincronizados con el playback, se resaltan al reproducir
-- **Hook badges** — etiquetas de tipo (Curiosity Gap, Urgency, etc.)
-- **Datos fuente**: Whisper (transcripción) + text_hook_analyzer (detección de hooks)
+Si CLIP no genera candidatos → `top_clips` vacío y la UI muestra "No disponible".
 
-### 📐 MetricCard (genérico)
+## 📝 Transcript Panel (`TranscriptPanel.tsx`)
 
-- Tarjeta reutilizable para mostrar métricas individuales
-- Se usa para dominant emotion, attention duration, action score, etc.
-- **Datos fuente**: Cualquier campo del `AnalysisResult`
+| Elemento | Campo | Producido por |
+|---|---|---|
+| **Segmentos** | `transcript.segments[]` | Whisper (sincronizados con el playback) |
+| **Hook badges** | `transcript.hooks[]` | Qwen (tipo + confianza) |
+
+## 📐 MetricCards (`App.tsx`)
+
+| Tarjeta | Campo | Producido por |
+|---|---|---|
+| **Dominant Emotion** | `data.dominant_emotion` | DeepFace |
+| **Attention Duration** | `data.attention_duration_seconds` | Backend `_compute_attention_duration_seconds`: intervalo continuo más largo con retención alta + ≥2 señales reales (persona/cara, audio/hook, CLIP) → *derived*. En uploaded solo se muestra si existe. |
 
 ---
 
-## Variables de entorno para activar cada modelo
+## Rendimiento (modelos)
+
+Los modelos pesados (YOLO, DeepFace, CLIP, Qwen, Whisper, VideoMAE) se **cargan
+una sola vez** (caché a nivel de proceso) y se **precargan al arrancar el
+servidor** (warm-up en segundo plano), por lo que no se recargan en cada análisis.
+Whisper y VideoMAE corren en **GPU** cuando hay CUDA. El vídeo se decodifica una
+sola vez y los frames muestreados se reutilizan entre OpenCV, YOLO y DeepFace.
+
+Esto no cambia la procedencia de los datos: solo acelera el análisis.
+
+---
+
+## Variables de entorno por modelo
 
 ```bash
-# YOLOv8 (detección de objetos)
+# Detección de objetos (YOLO) — por defecto heurístico, actívalo:
 VISUAL_ANALYZER_PROVIDER=yolo
 
-# DeepFace (emociones faciales)
+# Emoción facial (DeepFace) — activo por defecto
 EMOTION_ANALYZER_PROVIDER=deepface
 
-# VideoMAE (reconocimiento de acciones)
+# Memorabilidad / rewatch / ranking de clips (CLIP) — activo por defecto
+MEMORABILITY_SCORER=clip
+CLIP_RANKER_ENABLED=true
+
+# Insights y hooks (Qwen) — hooks por defecto; insights opcional
+TEXT_HOOK_ANALYZER=qwen
+EXPLANATION_PROVIDER=qwen
+
+# Transcripción (Whisper) — activo por defecto
+AUREA_WHISPER_ENABLED=true
+AUREA_WHISPER_MODEL=small
+
+# Audio (librosa) — activo por defecto
+AUREA_AUDIO_ENABLED=true
+
+# Pacing (PySceneDetect) — activo por defecto
+SCENE_DETECTION_ENABLED=true
+
+# Reconocimiento de acciones (VideoMAE) — desactivado por defecto
 ENABLE_TEMPORAL_ANALYSIS=true
 TEMPORAL_ANALYZER_PROVIDER=videomae
 
-# Qwen (insights con LLM)
-EXPLANATION_PROVIDER=qwen
+# Retención por modelo ML (opcional; por defecto fórmula derived)
+RETENTION_PREDICTOR_PROVIDER=ml
+RETENTION_MODEL_PATH=/ruta/al/modelo.joblib
 
-# Cache de explicaciones
-EXPLANATION_CACHE_ENABLED=true
+# Warm-up de modelos al arrancar (activo por defecto)
+AUREA_WARMUP_MODELS=true
 ```
 
-Sin estas variables, todo funciona con heurísticos (OpenCV + reglas).
+Sin estas variables, las métricas que dependen de un modelo ausente se calculan
+de forma `derived`/heurística o se marcan `unavailable` (y la UI las oculta);
+nunca se sustituyen por valores inventados en modo uploaded.

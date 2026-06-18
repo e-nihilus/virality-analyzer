@@ -83,6 +83,8 @@
           "virality": { "type": "number", "minimum": 0, "maximum": 1 },
           "valence": { "type": "number", "minimum": 0, "maximum": 1 },
           "arousal": { "type": "number", "minimum": 0, "maximum": 1 },
+          "emotion": { "type": "string" },
+          "emotion_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
           "retention": { "type": "number", "minimum": 0, "maximum": 1 },
           "label": { "type": "string" }
         }

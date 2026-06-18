@@ -24,8 +24,10 @@ from ..schemas.analysis import (
     TranscriptSegment as TranscriptSegmentSchema,
     VideoMeta,
 )
+from .feature_store import build_and_persist_multimodal_features
 from .audio_analyzer import analyze_audio, librosa_available
 from .emotion_analyzer import analyze_frames_deepface, dominant_emotion_from_frame_signals
+from .emotion.va_fusion import dominant_emotion_from_points, fuse_timeline_valence_arousal
 from .explanation_generator import HeuristicExplanationGenerator, QwenExplanationGenerator
 from .provider_factory import (
     _env_flag,
@@ -375,6 +377,12 @@ def analyze_video(
     audio_energy = None
     audio_silence = None
     audio_energy_change = None
+    audio_pitch_hz = None
+    audio_pitch_variance = None
+    audio_speech_rate = None
+    audio_beat_drop = None
+    audio_laughter_scream = None
+    audio_voice_intensity = None
     if librosa_available():
         logger.info("librosa available - extracting audio features for %s", analysis_id)
         wav_path = extract_audio_wav(video_path, output_dir)
@@ -384,11 +392,23 @@ def analyze_video(
                 audio_energy = audio_features.rms_energy
                 audio_silence = audio_features.silence_mask
                 audio_energy_change = audio_features.energy_change
-                logger.info("Audio features extracted: %d frames", len(audio_energy))
+                audio_pitch_hz = audio_features.pitch_hz
+                audio_pitch_variance = audio_features.pitch_variance
+                audio_speech_rate = audio_features.speech_rate
+                audio_beat_drop = audio_features.beat_drop
+                audio_laughter_scream = audio_features.laughter_scream
+                audio_voice_intensity = audio_features.voice_intensity
+                logger.info("Audio/prosody features extracted: %d frames", len(audio_energy))
                 provider_status.append(_provider_status(
                     name="audio",
                     provider="librosa",
                     status=ProviderExecutionStatus.used,
+                ))
+                provider_status.append(_provider_status(
+                    name="audio_events",
+                    provider="librosa_heuristic",
+                    status=ProviderExecutionStatus.used,
+                    message="Extracted pitch, speech_rate, beat_drop, laughter/scream, voice_intensity",
                 ))
         if audio_energy is None:
             provider_status.append(_provider_status(
@@ -522,6 +542,9 @@ def analyze_video(
         audio_energy=audio_energy,
         audio_silence=audio_silence,
         audio_energy_change=audio_energy_change,
+        audio_voice_intensity=audio_voice_intensity,
+        audio_beat_drop=audio_beat_drop,
+        audio_laughter_scream=audio_laughter_scream,
         face_valence=face_valence,
         face_arousal=face_arousal,
         detection_density=detection_density,
@@ -896,6 +919,55 @@ def analyze_video(
             message="No transcript available for hook classification",
         ))
 
+    multimodal_emotion_points = None
+    fused_valence: list[float] | None = None
+    fused_arousal: list[float] | None = None
+    try:
+        multimodal_emotion_points = fuse_timeline_valence_arousal(
+            timeline=timeline,
+            face_valence=face_valence,
+            face_arousal=face_arousal,
+            face_dominant_emotions=face_signals.dominant_emotions if face_signals is not None else None,
+            audio_voice_intensity=audio_voice_intensity,
+            audio_beat_drop=audio_beat_drop,
+            audio_laughter_scream=audio_laughter_scream,
+            transcript_segments=transcript_data.segments if transcript_data else None,
+            text_hooks=transcript_data.hooks if transcript_data else None,
+            sample_interval_seconds=SAMPLE_INTERVAL,
+        )
+        fused_valence = [point.valence for point in multimodal_emotion_points]
+        fused_arousal = [point.arousal for point in multimodal_emotion_points]
+        fused_dominant = dominant_emotion_from_points(multimodal_emotion_points)
+        if fused_dominant is not None:
+            dominant_emotion = fused_dominant
+            dominant_emotion_provider = "multimodal_va_fusion"
+        if fused_arousal:
+            emotion_intensity = round(sum(fused_arousal) / len(fused_arousal), 3)
+        providers_used = sorted({
+            provider
+            for point in multimodal_emotion_points
+            for provider in point.providers
+            if provider != "timeline_base"
+        })
+        provider_status.append(_provider_status(
+            name="multimodal_va_fusion",
+            provider="va_fusion",
+            status=ProviderExecutionStatus.used,
+            message=(
+                "Fused valence/arousal from " + ", ".join(providers_used)
+                if providers_used
+                else "Fused valence/arousal from timeline fallback"
+            ),
+        ))
+    except Exception:
+        logger.warning("Multimodal V/A fusion failed; keeping existing timeline emotion", exc_info=True)
+        provider_status.append(_provider_status(
+            name="multimodal_va_fusion",
+            provider="va_fusion",
+            status=ProviderExecutionStatus.failed,
+            message="Multimodal V/A fusion failed; existing timeline values kept",
+        ))
+
     if top_clips and clip_reason_provider_name == "structured" and transcript_data is not None:
         for clip in top_clips:
             clip.reasons = structured_reasons_from_context(build_clip_context(
@@ -928,11 +1000,64 @@ def analyze_video(
         hooks=hooks,
     )
 
+    feature_set = None
+    try:
+        feature_set = build_and_persist_multimodal_features(
+            analysis_id=analysis_id,
+            output_dir=output_dir,
+            duration_seconds=duration,
+            frame_diffs=visual.frame_diffs,
+            brightness=visual.brightness,
+            detection_density=detection_density,
+            face_valence=fused_valence or face_valence,
+            face_arousal=fused_arousal or face_arousal,
+            audio_energy=audio_energy,
+            audio_silence=audio_silence,
+            audio_energy_change=audio_energy_change,
+            audio_pitch_hz=audio_pitch_hz,
+            audio_pitch_variance=audio_pitch_variance,
+            audio_speech_rate=audio_speech_rate,
+            audio_beat_drop=audio_beat_drop,
+            audio_laughter_scream=audio_laughter_scream,
+            audio_voice_intensity=audio_voice_intensity,
+            transcript_segments=transcript_data.segments if transcript_data else None,
+            sample_interval_seconds=SAMPLE_INTERVAL,
+        )
+        provider_status.append(_provider_status(
+            name="multimodal_embeddings",
+            provider="feature_store",
+            status=ProviderExecutionStatus.used,
+            message=f"Persisted window embedding tensor shape={feature_set.shape}",
+        ))
+    except Exception:
+        logger.warning("Multimodal feature persistence failed", exc_info=True)
+        provider_status.append(_provider_status(
+            name="multimodal_embeddings",
+            provider="feature_store",
+            status=ProviderExecutionStatus.failed,
+            message="Window embedding tensor could not be persisted",
+        ))
+
     visual_providers = [visual.provider]
     if audio_energy is not None:
         visual_providers.append("librosa")
     if face_valence is not None or face_arousal is not None:
         visual_providers.append("deepface")
+
+    va_providers = (
+        sorted({
+            provider
+            for point in multimodal_emotion_points or []
+            for provider in point.providers
+        })
+        if multimodal_emotion_points is not None
+        else (["deepface"] if face_valence is not None or face_arousal is not None else visual_providers)
+    )
+    va_source_type = (
+        MetricSourceType.ai
+        if any(provider in {"deepface", "qwen"} for provider in va_providers)
+        else MetricSourceType.derived
+    )
 
     virality_source_type = MetricSourceType.ai if virality_provider_name == "ml" else MetricSourceType.derived
     virality_source_message = (
@@ -956,8 +1081,13 @@ def analyze_video(
         ),
         _metric_source(
             metric="timeline.valence_arousal",
-            source_type=MetricSourceType.ai if face_valence is not None or face_arousal is not None else MetricSourceType.derived,
-            providers=["deepface"] if face_valence is not None or face_arousal is not None else visual_providers,
+            source_type=va_source_type,
+            providers=va_providers,
+            message=(
+                "Multimodal valence/arousal fused with per-sample confidence"
+                if multimodal_emotion_points is not None
+                else None
+            ),
         ),
         _metric_source(
             metric="retention_score",
@@ -1000,9 +1130,22 @@ def analyze_video(
         ),
         _metric_source(
             metric="dominant_emotion",
-            source_type=MetricSourceType.ai if dominant_emotion is not None and dominant_emotion_provider == "deepface" else MetricSourceType.unavailable,
-            providers=[dominant_emotion_provider] if dominant_emotion is not None and dominant_emotion_provider == "deepface" else [],
+            source_type=(
+                va_source_type
+                if dominant_emotion is not None and dominant_emotion_provider == "multimodal_va_fusion"
+                else MetricSourceType.ai if dominant_emotion is not None and dominant_emotion_provider == "deepface"
+                else MetricSourceType.unavailable
+            ),
+            providers=(
+                va_providers
+                if dominant_emotion is not None and dominant_emotion_provider == "multimodal_va_fusion"
+                else [dominant_emotion_provider] if dominant_emotion is not None and dominant_emotion_provider == "deepface"
+                else []
+            ),
             message=(
+                "Dominant emotion inferred by multimodal V/A fusion"
+                if dominant_emotion is not None and dominant_emotion_provider == "multimodal_va_fusion"
+                else
                 "Dominant emotion inferred by DeepFace"
                 if dominant_emotion is not None and dominant_emotion_provider == "deepface"
                 else "Unavailable: DeepFace did not produce dominant emotion"
@@ -1010,12 +1153,12 @@ def analyze_video(
         ),
         _metric_source(
             metric="emotion_intensity",
-            source_type=MetricSourceType.ai if emotion_intensity is not None else MetricSourceType.unavailable,
-            providers=["deepface"] if emotion_intensity is not None else [],
+            source_type=va_source_type if emotion_intensity is not None else MetricSourceType.unavailable,
+            providers=va_providers if emotion_intensity is not None else [],
             message=(
-                "Average arousal derived from DeepFace per-frame emotion probabilities"
+                "Average arousal derived from multimodal V/A fusion"
                 if emotion_intensity is not None
-                else "Unavailable: DeepFace per-frame emotion signals were not available"
+                else "Unavailable: emotion signals were not available"
             ),
         ),
         _metric_source(
@@ -1038,6 +1181,26 @@ def analyze_video(
             source_type=MetricSourceType.derived if hook_score is not None else MetricSourceType.unavailable,
             providers=[visual.provider, "deepface", text_hooks_provider],
             message="Derived from first-5s person/face/audio/text-hook evidence; not a calibrated AI model",
+        ),
+        _metric_source(
+            metric="audio_prosody_events",
+            source_type=MetricSourceType.derived if audio_voice_intensity is not None else MetricSourceType.unavailable,
+            providers=["librosa", "librosa_heuristic"] if audio_voice_intensity is not None else [],
+            message=(
+                "Per-second pitch, speech_rate, beat_drop, laughter/scream and voice_intensity extracted from audio"
+                if audio_voice_intensity is not None
+                else "Unavailable: audio prosody/event extraction did not run or produced no features"
+            ),
+        ),
+        _metric_source(
+            metric="multimodal_window_embeddings",
+            source_type=MetricSourceType.derived if feature_set is not None else MetricSourceType.unavailable,
+            providers=list(feature_set.providers.values()) if feature_set is not None else [],
+            message=(
+                f"Persisted at {feature_set.matrix_path.name} with shape {feature_set.shape}"
+                if feature_set is not None
+                else "Unavailable: multimodal feature tensor persistence failed"
+            ),
         ),
         _metric_source(
             metric="pacing_score",

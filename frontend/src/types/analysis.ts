@@ -31,6 +31,8 @@ export interface TimelineEntry {
   virality?: number;
   valence?: number;
   arousal?: number;
+  emotion?: string;
+  emotion_confidence?: number;
   retention?: number;
   label?: string;
 }

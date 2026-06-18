@@ -63,6 +63,8 @@ class TimelineEntry(BaseModel):
     virality: Optional[float] = Field(None, ge=0, le=1)
     valence: Optional[float] = Field(None, ge=0, le=1)
     arousal: Optional[float] = Field(None, ge=0, le=1)
+    emotion: Optional[str] = None
+    emotion_confidence: Optional[float] = Field(None, ge=0, le=1)
     retention: Optional[float] = Field(None, ge=0, le=1)
     label: Optional[str] = None
 
