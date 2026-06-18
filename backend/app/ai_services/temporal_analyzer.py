@@ -3,12 +3,40 @@
 from __future__ import annotations
 
 import logging
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from .provider_exceptions import ProviderDependencyError
 
 logger = logging.getLogger(__name__)
+
+# Process-wide VideoMAE model cache, keyed by model name. Loaded once and reused
+# across analyses instead of being rebuilt on every request.
+_VIDEOMAE_CACHE: dict[str, tuple[object, object, str]] = {}
+_VIDEOMAE_LOCK = threading.Lock()
+
+
+def _load_videomae_model(model_name: str) -> tuple[object, object, str]:
+    """Return a cached (model, processor, device) tuple for *model_name*."""
+    cached = _VIDEOMAE_CACHE.get(model_name)
+    if cached is not None:
+        return cached
+    with _VIDEOMAE_LOCK:
+        cached = _VIDEOMAE_CACHE.get(model_name)
+        if cached is None:
+            import torch
+            from transformers import VideoMAEForVideoClassification, VideoMAEImageProcessor
+
+            logger.info("Loading VideoMAE model %s (cached for reuse) …", model_name)
+            processor = VideoMAEImageProcessor.from_pretrained(model_name)
+            model = VideoMAEForVideoClassification.from_pretrained(model_name)
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            model = model.to(device)
+            model.eval()
+            cached = (model, processor, device)
+            _VIDEOMAE_CACHE[model_name] = cached
+    return cached
 
 
 @dataclass
@@ -113,15 +141,13 @@ class VideoMAETemporalAnalyzer(TemporalAnalyzerAdapter):
         try:
             self.validate_dependencies()
             import torch
-            from transformers import VideoMAEForVideoClassification, VideoMAEImageProcessor
 
             frames = self._sample_frames(video_path)
 
-            processor = VideoMAEImageProcessor.from_pretrained(self._MODEL_NAME)
-            model = VideoMAEForVideoClassification.from_pretrained(self._MODEL_NAME)
-            model.eval()
+            model, processor, device = _load_videomae_model(self._MODEL_NAME)
 
             inputs = processor(frames, return_tensors="pt")
+            inputs = {k: v.to(device) for k, v in inputs.items()}
             with torch.no_grad():
                 outputs = model(**inputs)
 

@@ -25,11 +25,10 @@ from ..schemas.analysis import (
     VideoMeta,
 )
 from .audio_analyzer import analyze_audio, librosa_available
-from .emotion_analyzer import analyze_frames_deepface
+from .emotion_analyzer import analyze_frames_deepface, dominant_emotion_from_frame_signals
 from .explanation_generator import HeuristicExplanationGenerator, QwenExplanationGenerator
 from .provider_factory import (
     _env_flag,
-    get_emotion_analyzer,
     get_explanation_generator,
     get_memorability_scorer,
     get_retention_predictor,
@@ -406,24 +405,31 @@ def analyze_video(
             status=ProviderExecutionStatus.disabled,
         ))
 
-    # Step 2c: Aggregate YOLO detections into per-second density for timeline
+    # Step 2c: Aggregate YOLO detections into per-second density for timeline.
+    # Detections produced from sampled frames already carry a sample_index, so
+    # there is no need to re-open the video just to recover fps/frame_step.
     detection_density: list[float] | None = None
     if visual.detections:
-        import cv2 as _cv2
-
-        _cap = _cv2.VideoCapture(video_path)
-        _fps = _cap.get(_cv2.CAP_PROP_FPS) or 30.0
-        _cap.release()
-        frame_step = max(1, int(_fps * SAMPLE_INTERVAL))
-
         n_frames = len(visual.frame_diffs)
+        frame_step: int | None = None
         counts = [0] * n_frames
         for det in visual.detections:
-            idx = int(det["frame_index"]) // frame_step
+            sample_index = det.get("sample_index")
+            if sample_index is None:
+                # Backward-compatible fallback for detections lacking sample_index.
+                if frame_step is None:
+                    import cv2 as _cv2
+
+                    _cap = _cv2.VideoCapture(video_path)
+                    _fps = _cap.get(_cv2.CAP_PROP_FPS) or 30.0
+                    _cap.release()
+                    frame_step = max(1, int(_fps * SAMPLE_INTERVAL))
+                sample_index = int(det["frame_index"]) // frame_step
+                det["sample_index"] = sample_index
+                det["time_seconds"] = round(sample_index * SAMPLE_INTERVAL, 2)
+            idx = int(sample_index)
             if 0 <= idx < n_frames:
                 counts[idx] += 1
-                det["sample_index"] = idx
-                det["time_seconds"] = round(idx * SAMPLE_INTERVAL, 2)
         max_count = max(counts) if counts else 1
         detection_density = [c / max(max_count, 1) for c in counts]
         logger.info("YOLO detection density: max=%d detections/frame", max_count)
@@ -431,11 +437,16 @@ def analyze_video(
     # Step 2d: DeepFace per-frame emotion for timeline enrichment
     face_valence: list[float] | None = None
     face_arousal: list[float] | None = None
+    face_signals = None
     requested_emotion_provider = _env_flag("EMOTION_ANALYZER_PROVIDER", "deepface")
     if requested_emotion_provider == "deepface":
         logger.info("Running DeepFace per-frame analysis for timeline enrichment")
         try:
-            face_signals = analyze_frames_deepface(video_path, interval_seconds=SAMPLE_INTERVAL)
+            face_signals = analyze_frames_deepface(
+                samples=visual.samples or None,
+                video_path=video_path,
+                interval_seconds=SAMPLE_INTERVAL,
+            )
             if face_signals:
                 face_valence = face_signals.valence
                 face_arousal = face_signals.arousal
@@ -691,27 +702,23 @@ def analyze_video(
         ))
 
     # Step 6: Dominant emotion and intensity from DeepFace only for uploads.
+    # Derived from the per-frame DeepFace results computed in Step 2d, avoiding a
+    # redundant second full-video decode + DeepFace inference pass.
     emotion_intensity = round(sum(face_arousal) / len(face_arousal), 3) if face_arousal else None
-    emotion_adapter = get_emotion_analyzer(video_path=video_path)
-    dominant_emotion_provider = getattr(emotion_adapter, "provider_name", "unknown")
     dominant_emotion: str | None = None
-    if dominant_emotion_provider == "deepface":
-        try:
-            dominant_emotion = emotion_adapter.dominant_emotion(timeline=timeline)
-            provider_status.append(_provider_status(
-                name="dominant_emotion",
-                provider=dominant_emotion_provider,
-                status=_status_from_requested(requested_emotion_provider, dominant_emotion_provider),
-            ))
-        except Exception:
-            logger.exception("DeepFace dominant-emotion provider failed")
-            dominant_emotion_provider = "none"
-            provider_status.append(_provider_status(
-                name="dominant_emotion",
-                provider="deepface",
-                status=ProviderExecutionStatus.failed,
-                message="DeepFace dominant-emotion provider failed",
-            ))
+    if face_signals is not None:
+        dominant_emotion = dominant_emotion_from_frame_signals(
+            face_signals,
+            sample_interval=SAMPLE_INTERVAL,
+            dominant_interval=2.0,
+        )
+    if dominant_emotion is not None:
+        dominant_emotion_provider = "deepface"
+        provider_status.append(_provider_status(
+            name="dominant_emotion",
+            provider="deepface",
+            status=_status_from_requested(requested_emotion_provider, "deepface"),
+        ))
     else:
         dominant_emotion_provider = "none"
         provider_status.append(_provider_status(

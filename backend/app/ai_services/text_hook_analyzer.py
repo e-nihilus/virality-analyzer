@@ -163,20 +163,11 @@ class _QwenHookClassifier:
     def _load_model(self) -> None:
         if self._model is not None:
             return
+        # Reuse the shared, process-wide Qwen cache so the same model id is not
+        # loaded twice (once here and once for explanation/clip reasons).
+        from .explanation_generator import _load_qwen_model
 
-        import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-
-        logger.info("Loading Qwen hook classifier model %s …", self._MODEL_ID)
-        self._tokenizer = AutoTokenizer.from_pretrained(self._MODEL_ID, trust_remote_code=True)
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._model = AutoModelForCausalLM.from_pretrained(
-            self._MODEL_ID,
-            dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            trust_remote_code=True,
-        )
-        self._model = self._model.to(device)
-        self._model.eval()
+        self._model, self._tokenizer = _load_qwen_model(self._MODEL_ID)
 
     def classify(self, text: str) -> tuple[str, float]:
         import torch

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 from abc import ABC, abstractmethod
 
 from ..schemas.analysis import Insight, InsightSeverity, TimelineEntry, TopClip
@@ -13,6 +14,38 @@ from .explanation_engine import generate_insights
 from .provider_exceptions import ProviderDependencyError
 
 logger = logging.getLogger(__name__)
+
+# Process-wide Qwen model cache, keyed by model id. Loaded once and reused across
+# analyses instead of being rebuilt on every request.
+_QWEN_CACHE: dict[str, tuple[object, object]] = {}
+_QWEN_LOCK = threading.Lock()
+
+
+def _load_qwen_model(model_id: str) -> tuple[object, object]:
+    """Return a cached (model, tokenizer) pair for *model_id*."""
+    cached = _QWEN_CACHE.get(model_id)
+    if cached is not None:
+        return cached
+    with _QWEN_LOCK:
+        cached = _QWEN_CACHE.get(model_id)
+        if cached is None:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
+            logger.info("Loading Qwen model %s (cached for reuse) …", model_id)
+            tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                trust_remote_code=True,
+            )
+            model = model.to(device)
+            model.eval()
+            cached = (model, tokenizer)
+            _QWEN_CACHE[model_id] = cached
+            logger.info("Qwen model loaded successfully.")
+    return cached
 
 
 class ExplanationGenerator(ABC):
@@ -150,24 +183,10 @@ class QwenExplanationGenerator(ExplanationGenerator):
             ) from exc
 
     def _load_model(self) -> None:
-        """Lazy-load model and tokenizer on first use."""
+        """Lazy-load model and tokenizer on first use (process-wide cache)."""
         if self._model is not None:
             return
-
-        import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-
-        logger.info("Loading Qwen model %s …", self._MODEL_ID)
-        self._tokenizer = AutoTokenizer.from_pretrained(self._MODEL_ID, trust_remote_code=True)
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._model = AutoModelForCausalLM.from_pretrained(
-            self._MODEL_ID,
-            dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            trust_remote_code=True,
-        )
-        self._model = self._model.to(device)
-        self._model.eval()
-        logger.info("Qwen model loaded successfully.")
+        self._model, self._tokenizer = _load_qwen_model(self._MODEL_ID)
 
     def _build_prompt(
         self,

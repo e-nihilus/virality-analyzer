@@ -2,14 +2,37 @@
 
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import logging
 
 from .provider_exceptions import ProviderDependencyError
 
+if TYPE_CHECKING:
+    from ..processing.frame_extractor import SampledFrame
+
 logger = logging.getLogger(__name__)
+
+# Process-wide YOLO model cache. Loading the model is expensive, so it is loaded
+# once and reused across analyses instead of being rebuilt on every request.
+_YOLO_MODEL = None
+_YOLO_LOCK = threading.Lock()
+
+
+def _load_yolo_model():
+    """Return a cached YOLOv8 model, loading it on first use."""
+    global _YOLO_MODEL
+    if _YOLO_MODEL is None:
+        with _YOLO_LOCK:
+            if _YOLO_MODEL is None:
+                from ultralytics import YOLO
+
+                logger.info("Loading YOLOv8 model (cached for reuse) …")
+                _YOLO_MODEL = YOLO("yolov8n.pt")
+    return _YOLO_MODEL
 
 
 @dataclass
@@ -20,6 +43,7 @@ class VisualAnalysis:
     brightness: list[float]
     provider: str = "heuristic"
     detections: list[dict[str, object]] = field(default_factory=list)
+    samples: list["SampledFrame"] = field(default_factory=list)
 
 
 class VisualAnalyzerAdapter(ABC):
@@ -58,19 +82,17 @@ class HeuristicVisualAnalyzer(VisualAnalyzerAdapter):
         interval_seconds: float,
     ) -> VisualAnalysis:
         # Local import keeps startup lightweight for tests that do not touch OpenCV.
-        from ..processing.frame_extractor import (
-            compute_brightness,
-            compute_frame_diffs,
-            extract_frames,
-        )
+        from ..processing.frame_extractor import extract_sampled_frames
 
-        extract_frames(video_path, output_dir, interval_seconds=interval_seconds)
-        frame_diffs = compute_frame_diffs(video_path, interval_seconds=interval_seconds)
-        brightness = compute_brightness(video_path, interval_seconds=interval_seconds)
+        # Single decode pass: saves frames + computes diffs + brightness together.
+        sampled = extract_sampled_frames(
+            video_path, output_dir, interval_seconds=interval_seconds
+        )
         return VisualAnalysis(
-            frame_diffs=frame_diffs,
-            brightness=brightness,
+            frame_diffs=sampled.frame_diffs,
+            brightness=sampled.brightness,
             provider=self.provider_name,
+            samples=sampled.samples,
         )
 
 
@@ -90,54 +112,46 @@ class YoloVisualAnalyzer(VisualAnalyzerAdapter):
                 "YOLO provider requested but 'ultralytics' is not installed"
             ) from exc
 
-    def _run_yolo_on_frames(
+    def _run_yolo_on_samples(
         self,
-        video_path: str,
-        interval_seconds: float,
+        samples: list["SampledFrame"],
     ) -> list[dict[str, object]]:
-        """Sample frames from *video_path* and run YOLOv8 detection."""
+        """Run YOLOv8 detection on already-sampled frame JPEGs.
+
+        Reuses the frames decoded once by the heuristic extractor instead of
+        re-decoding the entire video.
+        """
         import cv2
-        from ultralytics import YOLO
 
-        model = YOLO("yolov8n.pt")
+        model = _load_yolo_model()
 
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            logger.warning("Could not open video for YOLO inference: %s", video_path)
-            return []
-
-        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-        frame_step = max(1, int(fps * interval_seconds))
         detections: list[dict[str, object]] = []
-        frame_idx = 0
+        for sample in samples:
+            frame = cv2.imread(str(sample.path))
+            if frame is None:
+                logger.warning("Could not read sampled frame for YOLO: %s", sample.path)
+                continue
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
+            results = model(frame, verbose=False)
+            for result in results:
+                for box in result.boxes:
+                    conf = float(box.conf[0])
+                    if conf < 0.4:
+                        continue
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    cls_id = int(box.cls[0])
+                    class_name = result.names.get(cls_id, str(cls_id))
+                    detections.append(
+                        {
+                            "frame_index": sample.frame_index,
+                            "sample_index": sample.sample_index,
+                            "time_seconds": round(sample.time_seconds, 2),
+                            "class_name": class_name,
+                            "confidence": round(conf, 4),
+                            "bbox": [x1, y1, x2, y2],
+                        }
+                    )
 
-            if frame_idx % frame_step == 0:
-                results = model(frame, verbose=False)
-                for result in results:
-                    for box in result.boxes:
-                        conf = float(box.conf[0])
-                        if conf < 0.4:
-                            continue
-                        x1, y1, x2, y2 = box.xyxy[0].tolist()
-                        cls_id = int(box.cls[0])
-                        class_name = result.names.get(cls_id, str(cls_id))
-                        detections.append(
-                            {
-                                "frame_index": frame_idx,
-                                "class_name": class_name,
-                                "confidence": round(conf, 4),
-                                "bbox": [x1, y1, x2, y2],
-                            }
-                        )
-
-            frame_idx += 1
-
-        cap.release()
         return detections
 
     def analyze(
@@ -156,7 +170,7 @@ class YoloVisualAnalyzer(VisualAnalyzerAdapter):
         )
 
         try:
-            detections = self._run_yolo_on_frames(video_path, interval_seconds)
+            detections = self._run_yolo_on_samples(fallback_analysis.samples)
             fallback_analysis.provider = self.provider_name
             fallback_analysis.detections = detections
         except Exception:

@@ -5,8 +5,14 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import metadata, util
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from ..processing.frame_extractor import SampledFrame
 
 from .provider_exceptions import ProviderDependencyError
 
@@ -200,6 +206,45 @@ class FrameEmotionSignals:
     """Per-frame valence/arousal derived from DeepFace emotion probabilities."""
     valence: list[float]
     arousal: list[float]
+    dominant_emotions: list[str | None] = field(default_factory=list)
+
+
+# Maps raw DeepFace labels to the product's emotion vocabulary.
+_DEEPFACE_LABEL_MAP: dict[str, str] = {
+    "happy": "Joy",
+    "sad": "Sadness",
+    "angry": "Tension",
+    "surprise": "Surprise",
+    "fear": "Tension",
+    "disgust": "Tension",
+    "neutral": "Neutral",
+}
+
+
+def dominant_emotion_from_frame_signals(
+    signals: FrameEmotionSignals,
+    *,
+    sample_interval: float,
+    dominant_interval: float = 2.0,
+) -> str | None:
+    """Most frequent dominant emotion across per-frame DeepFace results.
+
+    Preserves the previous behaviour of the dedicated dominant-emotion pass,
+    which sampled every ``dominant_interval`` seconds, by sub-sampling the
+    per-frame results (computed every ``sample_interval`` seconds). Frames where
+    DeepFace failed (``None``) are skipped.
+    """
+    if not signals.dominant_emotions:
+        return None
+    stride = max(1, round(dominant_interval / sample_interval)) if sample_interval > 0 else 1
+    counts: Counter[str] = Counter(
+        emotion
+        for i, emotion in enumerate(signals.dominant_emotions)
+        if emotion is not None and i % stride == 0
+    )
+    if not counts:
+        return None
+    return counts.most_common(1)[0][0]
 
 
 # Russell's circumplex model weights for mapping discrete emotions → continuous V/A
@@ -224,15 +269,60 @@ _AROUSAL_WEIGHTS: dict[str, float] = {
 }
 
 
+def _deepface_frame_signals(deepface, frame) -> tuple[float, float, str | None]:
+    """Return (valence, arousal, dominant_emotion) for a single BGR frame.
+
+    On failure, returns neutral valence/arousal (0.5) and ``None`` dominant.
+    """
+    try:
+        results = deepface.analyze(
+            img_path=frame,
+            actions=["emotion"],
+            enforce_detection=False,
+        )
+        result = results[0] if isinstance(results, list) else results
+        emotions: dict[str, float] = result.get("emotion", {})
+
+        # Normalize emotion probabilities to sum to 1
+        total = sum(emotions.values()) or 1.0
+
+        # Weighted sum → raw valence/arousal in [-1, +1]
+        raw_valence = sum(
+            (prob / total) * _VALENCE_WEIGHTS.get(emo, 0.0)
+            for emo, prob in emotions.items()
+        )
+        raw_arousal = sum(
+            (prob / total) * _AROUSAL_WEIGHTS.get(emo, 0.0)
+            for emo, prob in emotions.items()
+        )
+
+        raw_dominant = result.get("dominant_emotion", "neutral")
+        dominant = _DEEPFACE_LABEL_MAP.get(raw_dominant, "Neutral")
+
+        # Remap [-1, +1] → [0, 1]
+        valence = max(0.0, min(1.0, (raw_valence + 1.0) / 2.0))
+        arousal = max(0.0, min(1.0, (raw_arousal + 1.0) / 2.0))
+        return valence, arousal, dominant
+    except Exception:
+        logger.debug("DeepFace per-frame failed – using neutral", exc_info=True)
+        return 0.5, 0.5, None
+
+
 def analyze_frames_deepface(
-    video_path: str,
+    video_path: str | None = None,
     interval_seconds: float = 1.0,
+    samples: "Sequence[SampledFrame] | None" = None,
 ) -> FrameEmotionSignals | None:
     """Run DeepFace per-frame and return continuous valence/arousal arrays.
 
     Uses Russell's circumplex model to convert DeepFace emotion probability
     distributions into continuous valence (negative→positive) and arousal
-    (calm→excited) values in the [0, 1] range.
+    (calm→excited) values in the [0, 1] range. The per-frame ``dominant_emotion``
+    label is recorded too, so the dominant-emotion summary can be derived without
+    a second decode/DeepFace pass.
+
+    When *samples* is provided, the pre-extracted frame JPEGs are reused (no full
+    video decode). Otherwise *video_path* is decoded as a fallback.
 
     Returns ``None`` if deepface/cv2 are unavailable or all frames fail.
     """
@@ -247,60 +337,56 @@ def analyze_frames_deepface(
         logger.debug("deepface or cv2 not available for per-frame analysis", exc_info=True)
         return None
 
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        logger.warning("Cannot open video for per-frame emotion: %s", video_path)
-        return None
-
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    frame_step = max(1, int(fps * interval_seconds))
-
     valence_list: list[float] = []
     arousal_list: list[float] = []
-    frame_idx = 0
+    dominant_list: list[str | None] = []
 
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if frame_idx % frame_step == 0:
-                try:
-                    results = DeepFace.analyze(
-                        img_path=frame,
-                        actions=["emotion"],
-                        enforce_detection=False,
-                    )
-                    result = results[0] if isinstance(results, list) else results
-                    emotions: dict[str, float] = result.get("emotion", {})
+    if samples is not None:
+        for sample in samples:
+            frame = cv2.imread(str(sample.path))
+            if frame is None:
+                logger.debug("Could not read sampled frame for emotion: %s", sample.path)
+                valence_list.append(0.5)
+                arousal_list.append(0.5)
+                dominant_list.append(None)
+                continue
+            valence, arousal, dominant = _deepface_frame_signals(DeepFace, frame)
+            valence_list.append(valence)
+            arousal_list.append(arousal)
+            dominant_list.append(dominant)
+    else:
+        if not video_path:
+            logger.warning("analyze_frames_deepface called without samples or video_path")
+            return None
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            logger.warning("Cannot open video for per-frame emotion: %s", video_path)
+            return None
 
-                    # Normalize emotion probabilities to sum to 1
-                    total = sum(emotions.values()) or 1.0
-
-                    # Weighted sum → raw valence/arousal in [-1, +1]
-                    raw_valence = sum(
-                        (prob / total) * _VALENCE_WEIGHTS.get(emo, 0.0)
-                        for emo, prob in emotions.items()
-                    )
-                    raw_arousal = sum(
-                        (prob / total) * _AROUSAL_WEIGHTS.get(emo, 0.0)
-                        for emo, prob in emotions.items()
-                    )
-
-                    # Remap [-1, +1] → [0, 1]
-                    valence_list.append(max(0.0, min(1.0, (raw_valence + 1.0) / 2.0)))
-                    arousal_list.append(max(0.0, min(1.0, (raw_arousal + 1.0) / 2.0)))
-                except Exception:
-                    logger.debug("DeepFace per-frame failed at frame %d – using neutral", frame_idx)
-                    valence_list.append(0.5)
-                    arousal_list.append(0.5)
-            frame_idx += 1
-    finally:
-        cap.release()
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        frame_step = max(1, int(fps * interval_seconds))
+        frame_idx = 0
+        try:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                if frame_idx % frame_step == 0:
+                    valence, arousal, dominant = _deepface_frame_signals(DeepFace, frame)
+                    valence_list.append(valence)
+                    arousal_list.append(arousal)
+                    dominant_list.append(dominant)
+                frame_idx += 1
+        finally:
+            cap.release()
 
     if not valence_list:
         logger.warning("No frames analysed for per-frame emotion")
         return None
 
     logger.info("DeepFace per-frame emotion: %d frames analysed", len(valence_list))
-    return FrameEmotionSignals(valence=valence_list, arousal=arousal_list)
+    return FrameEmotionSignals(
+        valence=valence_list,
+        arousal=arousal_list,
+        dominant_emotions=dominant_list,
+    )

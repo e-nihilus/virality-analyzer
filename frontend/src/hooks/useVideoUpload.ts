@@ -10,7 +10,11 @@ function setVideoUrl(url: string | null) {
 
 type UploadStatus = "idle" | "uploading" | "processing" | "done" | "error";
 
-const POLL_INTERVAL_MS = 1500;
+// Polling uses backoff: starts fast, then slows down for long analyses to cut
+// down on request noise while a video is still processing.
+const POLL_INTERVAL_START_MS = 1500;
+const POLL_INTERVAL_MAX_MS = 5000;
+const POLL_BACKOFF_FACTOR = 1.4;
 
 function sourceFromResult(result: AnalysisResult): AnalysisSource {
   if (result.status === "failed" || result.analysis_source === "failed") {
@@ -26,12 +30,12 @@ export function useVideoUpload() {
   const [status, setStatus] = useState<UploadStatus>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoUrl = useAnalysisStore((s) => s.videoUrl);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
-      clearInterval(pollingRef.current);
+      clearTimeout(pollingRef.current);
       pollingRef.current = null;
     }
   }, []);
@@ -41,7 +45,14 @@ export function useVideoUpload() {
       setStatus("processing");
       setProgress(30);
 
-      pollingRef.current = setInterval(async () => {
+      let delay = POLL_INTERVAL_START_MS;
+
+      const scheduleNext = () => {
+        pollingRef.current = setTimeout(tick, delay);
+        delay = Math.min(Math.round(delay * POLL_BACKOFF_FACTOR), POLL_INTERVAL_MAX_MS);
+      };
+
+      const tick = async () => {
         try {
           const result = await fetchAnalysis(analysisId);
           const serverProgress = result.progress ?? 0;
@@ -59,6 +70,7 @@ export function useVideoUpload() {
               uploading: false,
             });
             setStatus("done");
+            return;
           } else if (result.status === "failed") {
             stopPolling();
             useAnalysisStore.setState({
@@ -68,11 +80,15 @@ export function useVideoUpload() {
             });
             setError("Analysis failed. Please try a different video.");
             setStatus("error");
+            return;
           }
         } catch {
           // Network error during poll — keep trying
         }
-      }, POLL_INTERVAL_MS);
+        scheduleNext();
+      };
+
+      scheduleNext();
     },
     [stopPolling],
   );

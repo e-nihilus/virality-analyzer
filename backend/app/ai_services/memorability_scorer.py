@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
 import logging
 from pathlib import Path
@@ -10,6 +11,32 @@ from ..schemas.analysis import TimelineEntry
 from .provider_exceptions import ProviderDependencyError
 
 logger = logging.getLogger(__name__)
+
+# Process-wide CLIP model cache, keyed by model id. Loaded once and reused across
+# analyses instead of being rebuilt on every request.
+_CLIP_CACHE: dict[str, tuple[object, object]] = {}
+_CLIP_LOCK = threading.Lock()
+
+
+def _load_clip_model(model_id: str) -> tuple[object, object]:
+    """Return a cached (model, processor) pair for *model_id*."""
+    cached = _CLIP_CACHE.get(model_id)
+    if cached is not None:
+        return cached
+    with _CLIP_LOCK:
+        cached = _CLIP_CACHE.get(model_id)
+        if cached is None:
+            import torch
+            from transformers import CLIPModel, CLIPProcessor
+
+            logger.info("Loading CLIP model %s (cached for reuse) …", model_id)
+            processor = CLIPProcessor.from_pretrained(model_id)
+            model = CLIPModel.from_pretrained(model_id)
+            model = model.to("cuda" if torch.cuda.is_available() else "cpu")
+            model.eval()
+            cached = (model, processor)
+            _CLIP_CACHE[model_id] = cached
+    return cached
 
 
 class MemorabilityScorer(ABC):
@@ -73,14 +100,7 @@ class ClipMemorabilityScorer(MemorabilityScorer):
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        import torch
-        from transformers import CLIPModel, CLIPProcessor
-
-        logger.info("Loading CLIP model %s …", self._MODEL_ID)
-        self._processor = CLIPProcessor.from_pretrained(self._MODEL_ID)
-        self._model = CLIPModel.from_pretrained(self._MODEL_ID)
-        self._model = self._model.to("cuda" if torch.cuda.is_available() else "cpu")
-        self._model.eval()
+        self._model, self._processor = _load_clip_model(self._MODEL_ID)
 
     def score_timeline(self, *, video_path: str, timeline: list[TimelineEntry]) -> list[float]:
         self.validate_dependencies()

@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,6 +18,43 @@ try:
     _WHISPER_IMPORTABLE = True
 except ImportError:
     _WHISPER_IMPORTABLE = False
+
+# Process-wide Whisper model cache, keyed by model size. Loaded once and reused
+# across analyses instead of being rebuilt on every request.
+_WHISPER_CACHE: dict[str, object] = {}
+_WHISPER_LOCK = threading.Lock()
+
+
+def _load_whisper_model(model_size: str):
+    """Return a cached WhisperModel, preferring GPU with a CPU fallback."""
+    cached = _WHISPER_CACHE.get(model_size)
+    if cached is not None:
+        return cached
+    with _WHISPER_LOCK:
+        cached = _WHISPER_CACHE.get(model_size)
+        if cached is None:
+            use_cuda = False
+            try:
+                import torch
+
+                use_cuda = torch.cuda.is_available()
+            except Exception:
+                use_cuda = False
+
+            if use_cuda:
+                try:
+                    logger.info("Loading Whisper '%s' on CUDA (cached) …", model_size)
+                    cached = WhisperModel(model_size, device="cuda", compute_type="float16")
+                except Exception:
+                    logger.warning(
+                        "Whisper CUDA init failed; falling back to CPU int8", exc_info=True
+                    )
+                    cached = None
+            if cached is None:
+                logger.info("Loading Whisper '%s' on CPU int8 (cached) …", model_size)
+                cached = WhisperModel(model_size, device="cpu", compute_type="int8")
+            _WHISPER_CACHE[model_size] = cached
+    return cached
 
 
 @dataclass
@@ -115,7 +153,7 @@ def transcribe_video(video_path: str, output_dir: str) -> TranscriptResult | Non
 
     try:
         model_size = os.environ.get("AUREA_WHISPER_MODEL", "small")
-        model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        model = _load_whisper_model(model_size)
 
         segments_iter, _info = model.transcribe(wav_path)
         segments: list[TranscriptSegment] = []
