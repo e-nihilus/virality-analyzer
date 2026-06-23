@@ -35,21 +35,43 @@ const EMOTION_INTENSITY: Record<string, number> = {
   Neutral: 0.3,
 };
 
-function findClosestEntry(
+/**
+ * Linearly interpolate a numeric timeline field at an arbitrary time.
+ *
+ * Real analysis timelines are sampled once per second and can jump sharply
+ * between consecutive samples (e.g. valence can change by 0.5 in 1s). Snapping
+ * to the closest sample produces a step function that looks abrupt as playback
+ * advances. Interpolating between the two bracketing samples yields a smooth,
+ * continuous signal regardless of how jumpy the underlying data is — matching
+ * the fluidity of the smooth demo timeline.
+ */
+function interpolateField(
   timeline: TimelineEntry[],
   time: number,
-): TimelineEntry | undefined {
-  if (!timeline.length) return undefined;
-  let closest = timeline[0];
-  let minDist = Math.abs(timeline[0].time_seconds - time);
-  for (let i = 1; i < timeline.length; i++) {
-    const dist = Math.abs(timeline[i].time_seconds - time);
-    if (dist < minDist) {
-      minDist = dist;
-      closest = timeline[i];
+  key: "virality" | "valence" | "arousal" | "retention",
+): number | undefined {
+  const points: Array<{ t: number; v: number }> = [];
+  for (const e of timeline) {
+    const v = e[key];
+    if (typeof v === "number") points.push({ t: e.time_seconds, v });
+  }
+  if (!points.length) return undefined;
+  points.sort((a, b) => a.t - b.t);
+
+  if (time <= points[0].t) return points[0].v;
+  const last = points[points.length - 1];
+  if (time >= last.t) return last.v;
+
+  for (let i = 1; i < points.length; i++) {
+    if (time <= points[i].t) {
+      const a = points[i - 1];
+      const b = points[i];
+      const span = b.t - a.t;
+      const f = span > 0 ? (time - a.t) / span : 0;
+      return a.v + (b.v - a.v) * f;
     }
   }
-  return closest;
+  return last.v;
 }
 
 export function analysisToSphereData(
@@ -58,12 +80,22 @@ export function analysisToSphereData(
 ): SphereData {
   const isDemo = data.analysis_source === "demo_mock";
   const timeline = data.timeline ?? [];
-  const entry = findClosestEntry(timeline, currentTime);
 
-  const virality = entry?.virality ?? data.overall_virality_score ?? (isDemo ? 0.5 : 0);
-  const arousal = entry?.arousal ?? (isDemo ? 0.5 : 0);
-  const valence = entry?.valence ?? (isDemo ? 0.5 : 0);
-  const retention = entry?.retention ?? data.retention_score ?? (isDemo ? 0.5 : 0);
+  // Numeric per-time metrics are interpolated between samples so the sphere
+  // transitions smoothly even when the underlying analysis data jumps sharply
+  // from one second to the next.
+  const virality =
+    interpolateField(timeline, currentTime, "virality") ??
+    data.overall_virality_score ??
+    (isDemo ? 0.5 : 0);
+  const arousal =
+    interpolateField(timeline, currentTime, "arousal") ?? (isDemo ? 0.5 : 0);
+  const valence =
+    interpolateField(timeline, currentTime, "valence") ?? (isDemo ? 0.5 : 0);
+  const retention =
+    interpolateField(timeline, currentTime, "retention") ??
+    data.retention_score ??
+    (isDemo ? 0.5 : 0);
   const emotionIntensity = isDemo
     ? EMOTION_INTENSITY[data.dominant_emotion ?? "Neutral"] ?? 0.5
     : data.emotion_intensity ?? null;

@@ -19,16 +19,59 @@ interface EngagementGraphProps {
 
 const DEFAULT_PATH = "M0 120 Q 150 110, 250 40 T 450 60 T 650 20 T 850 50 T 1000 30";
 
-function buildPathFromTimeline(timeline: TimelinePoint[], duration: number): string {
-  if (timeline.length === 0) return "";
+interface CurvePoint {
+  x: number;
+  y: number;
+  value: number;
+}
+
+function pointValue(p: TimelinePoint): number {
+  return p.arousal ?? p.virality ?? p.retention ?? 0;
+}
+
+/**
+ * Centered Gaussian-weighted moving average. Real analysis timelines are sampled
+ * once per second and can jump sharply between consecutive samples, producing a
+ * spiky engagement curve. Smoothing the value series suppresses that
+ * second-to-second noise while preserving overall trends. The smooth demo
+ * timeline is unaffected (its values barely change between neighbours).
+ */
+function smoothSeries(values: number[], radius = 2): number[] {
+  if (values.length <= 2) return values.slice();
+  const sigma = radius * 0.75;
+  const weights: number[] = [];
+  for (let k = -radius; k <= radius; k++) {
+    weights.push(Math.exp(-(k * k) / (2 * sigma * sigma)));
+  }
+
+  return values.map((_, i) => {
+    let sum = 0;
+    let wsum = 0;
+    for (let k = -radius; k <= radius; k++) {
+      const idx = i + k;
+      if (idx < 0 || idx >= values.length) continue;
+      const w = weights[k + radius];
+      sum += values[idx] * w;
+      wsum += w;
+    }
+    return wsum > 0 ? sum / wsum : values[i];
+  });
+}
+
+function buildSmoothedPoints(timeline: TimelinePoint[], duration: number): CurvePoint[] {
+  if (timeline.length === 0) return [];
   const safeDuration = duration > 0 ? duration : Math.max(...timeline.map((p) => p.time_seconds), 1);
 
-  const points = timeline.map((p) => {
-    const x = (p.time_seconds / safeDuration) * 1000;
-    const value = p.arousal ?? p.virality ?? p.retention ?? 0;
-    const y = 120 - value * 120;
-    return { x, y };
-  });
+  const smoothed = smoothSeries(timeline.map(pointValue));
+  return timeline.map((p, i) => ({
+    x: (p.time_seconds / safeDuration) * 1000,
+    y: 120 - smoothed[i] * 120,
+    value: smoothed[i],
+  }));
+}
+
+function buildPathFromPoints(points: CurvePoint[]): string {
+  if (points.length === 0) return "";
 
   let d = `M${points[0].x} ${points[0].y}`;
   for (let i = 1; i < points.length; i++) {
@@ -41,27 +84,15 @@ function buildPathFromTimeline(timeline: TimelinePoint[], duration: number): str
   return d;
 }
 
-function findPeak(timeline: TimelinePoint[], duration: number): { x: number; y: number } | null {
-  if (timeline.length === 0) return null;
-  const safeDuration = duration > 0 ? duration : Math.max(...timeline.map((p) => p.time_seconds), 1);
+function findPeak(points: CurvePoint[]): { x: number; y: number } | null {
+  if (points.length === 0) return null;
 
-  let maxVal = -1;
-  let maxPoint: TimelinePoint | null = null;
-
-  for (const p of timeline) {
-    const v = p.arousal ?? p.virality ?? p.retention ?? 0;
-    if (v > maxVal) {
-      maxVal = v;
-      maxPoint = p;
-    }
+  let peak = points[0];
+  for (const p of points) {
+    if (p.value > peak.value) peak = p;
   }
 
-  if (!maxPoint) return null;
-
-  return {
-    x: (maxPoint.time_seconds / safeDuration) * 1000,
-    y: 120 - maxVal * 120,
-  };
+  return { x: peak.x, y: peak.y };
 }
 
 function formatTime(seconds: number): string {
@@ -86,11 +117,12 @@ export default function EngagementGraph({
   allowDemoFallback = false,
 }: EngagementGraphProps) {
   const hasData = timeline && timeline.length > 0;
-  const curvePath = hasData ? buildPathFromTimeline(timeline, duration) : allowDemoFallback ? DEFAULT_PATH : "";
+  const points = hasData ? buildSmoothedPoints(timeline, duration) : [];
+  const curvePath = hasData ? buildPathFromPoints(points) : allowDemoFallback ? DEFAULT_PATH : "";
   const areaPath = `${curvePath} L1000 120 L0 120 Z`;
   const playheadX = duration > 0 ? (currentTime / duration) * 1000 : 0;
 
-  const peak = hasData ? findPeak(timeline, duration) : null;
+  const peak = hasData ? findPeak(points) : null;
   // Default peak for the hardcoded path (~26.6% at the high point)
   const peakIndicator = peak ?? (allowDemoFallback ? { x: 650, y: 20 } : null);
   const labels = timeLabels(duration || 0);

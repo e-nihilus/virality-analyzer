@@ -25,7 +25,7 @@ export const METRICS_LIST: MetricDefinition[] = [
   { key: "virality", name: "Virality", color: "pink", hex: "#FF00E5" },
   { key: "arousal", name: "Arousal", color: "orange", hex: "#FF3D00" },
   { key: "pacing", name: "Pacing", color: "indigo", hex: "#AD00FF" },
-  { key: "retention", name: "Retention", color: "crimson", hex: "#FF00E5" },
+  { key: "retention", name: "Retention", color: "blue", hex: "#0066FF" },
   { key: "emotion", name: "Emotion", color: "lime", hex: "#14FF00" },
   { key: "hook", name: "Hook", color: "amber", hex: "#FFD600" },
 ];

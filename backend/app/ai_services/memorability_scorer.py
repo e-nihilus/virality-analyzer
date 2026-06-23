@@ -115,15 +115,23 @@ class ClipMemorabilityScorer(MemorabilityScorer):
             self._load_model()
             cap = cv2.VideoCapture(video_path)
             fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-            scores: list[float] = []
             prompts = self._POSITIVE_PROMPTS + self._NEGATIVE_PROMPTS
 
+            # Per-frame CLIP "memorability margin": how much more the frame looks
+            # like a memorable/viral/emotional moment than a boring static shot.
+            # CLIP assigns most real footage a high absolute similarity to "a
+            # boring static shot", so the raw margin is almost always negative.
+            # The signal that matters is the *relative* variation across the
+            # video, so margins are min-max normalized below to surface the most
+            # memorable moments. (The old absolute `positive - negative + 0.5`
+            # mapping floored every score to 0.0, which meant no top clips ever.)
+            margins: list[float | None] = []
             for entry in timeline:
                 frame_no = int((entry.time_seconds or 0.0) * fps)
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
                 ok, frame = cap.read()
                 if not ok:
-                    scores.append(0.0)
+                    margins.append(None)
                     continue
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 image = Image.fromarray(rgb)
@@ -139,10 +147,36 @@ class ClipMemorabilityScorer(MemorabilityScorer):
                     probs = outputs.logits_per_image.softmax(dim=1)[0].detach().cpu().tolist()
                 positive = max(probs[: len(self._POSITIVE_PROMPTS)])
                 negative = probs[-1]
-                scores.append(round(max(0.0, min(1.0, positive - negative + 0.5)), 3))
+                margins.append(positive - negative)
 
             cap.release()
-            return scores
+            return self._normalize_margins(margins)
         except Exception:
             logger.warning("CLIP memorability scoring failed", exc_info=True)
             raise
+
+    @staticmethod
+    def _normalize_margins(margins: list[float | None]) -> list[float]:
+        """Min-max normalize per-frame margins into [0, 1] memorability scores.
+
+        Frames that could not be read (``None``) score 0.0. When every frame has
+        essentially the same margin (a flat, uniform video) there is no
+        meaningful peak to surface, so all frames get a neutral 0.5.
+        """
+        valid = [m for m in margins if m is not None]
+        if not valid:
+            return [0.0 for _ in margins]
+
+        lo = min(valid)
+        hi = max(valid)
+        spread = hi - lo
+
+        scores: list[float] = []
+        for margin in margins:
+            if margin is None:
+                scores.append(0.0)
+            elif spread < 1e-6:
+                scores.append(0.5)
+            else:
+                scores.append(round((margin - lo) / spread, 3))
+        return scores

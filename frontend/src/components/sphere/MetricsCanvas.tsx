@@ -24,7 +24,7 @@ const POLES_CONFIG: Record<string, { name: string; color: string; dir: THREE.Vec
   virality: { name: "Virality", color: "#FF00E5", dir: new THREE.Vector3( 0.52,  0.60, 0.61) },
   arousal: { name: "Arousal", color: "#FF3D00", dir: new THREE.Vector3( 0.85,  0.12, 0.51) },
   pacing: { name: "Pacing", color: "#AD00FF", dir: new THREE.Vector3(-0.85,  0.12, 0.51) },
-  retention: { name: "Retention", color: "#FF00E5", dir: new THREE.Vector3(-0.52, -0.68, 0.52) },
+  retention: { name: "Retention", color: "#0066FF", dir: new THREE.Vector3(-0.52, -0.68, 0.52) },
   emotion: { name: "Emotion", color: "#14FF00", dir: new THREE.Vector3( 0.52, -0.68, 0.52) },
   hook: { name: "Hook", color: "#FFD600", dir: new THREE.Vector3( 0.00, -0.90, 0.44) }
 };
@@ -167,7 +167,7 @@ vec3 traceEnergy(vec3 origin, vec3 dir, vec2 limits) {
     pCol[1] = vec3(1.0, 0.0, 0.9);    // Highly vibrant Pink #FF00E5
     pCol[2] = vec3(1.0, 0.18, 0.0);   // Highly vibrant Lava Orange #FF3D00
     pCol[3] = vec3(0.7, 0.0, 1.0);    // Highly vibrant Indigo #AD00FF
-    pCol[4] = vec3(1.0, 0.0, 0.5);    // Vibrant Crimson/Pink
+    pCol[4] = vec3(0.0, 0.4, 1.0);    // Vibrant Royal Blue #0066FF (distinct from virality pink)
     pCol[5] = vec3(0.0, 1.0, 0.1);    // Highly vibrant Lime #14FF00
     pCol[6] = vec3(1.1, 0.85, 0.0);   // Highly vibrant Amber Yellow #FFD600
 
@@ -212,7 +212,7 @@ vec3 traceEnergy(vec3 origin, vec3 dir, vec2 limits) {
             // This ensures each pointer points EXACTLY at their respective color sector,
             // with zero cross-bleeding to the opposite side of the sphere.
             float influence = pow(max(cosTheta, 0.0), 6.5);
-            
+
             // Weight is proportional to both proximity and the metric value (plus base)
             float weight = influence * (pVal[j] * 0.95 + 0.05);
             
@@ -810,7 +810,7 @@ export default function MetricsCanvas({ metrics, autoPlayBeat = true, isPlaying 
           virality: new THREE.Color("#FF00E5"), // Pink
           arousal: new THREE.Color("#FF3D00"), // Lava Orange
           pacing: new THREE.Color("#AD00FF"), // Indigo
-          retention: new THREE.Color("#FF00E5"), // Crimson
+          retention: new THREE.Color("#0066FF"), // Royal Blue
           emotion: new THREE.Color("#14FF00"), // Lime
           hook: new THREE.Color("#FFD600"), // Amber Yellow
         };

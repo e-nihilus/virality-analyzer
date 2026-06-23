@@ -42,7 +42,9 @@ class HeuristicRetentionPredictor(RetentionPredictor):
 
         n = len(features_per_second)
         predictions: list[float] = []
-        previous = 0.88
+        # Start from a neutral hold rate, not a near-perfect one, so the first
+        # seconds are not artificially anchored high.
+        previous = 0.6
 
         for i, features in enumerate(features_per_second):
             progress = i / max(n - 1, 1)
@@ -54,30 +56,41 @@ class HeuristicRetentionPredictor(RetentionPredictor):
             is_silent = bool(features.get("is_silent", False))
 
             # Non-linear baseline: strongest pressure is in the first seconds,
-            # then decay stabilizes instead of dropping linearly forever.
-            baseline = 0.86 - 0.12 * (progress ** 0.75)
+            # then decay stabilizes instead of dropping linearly forever. Kept
+            # at a moderate level (≈0.65 → 0.45) so engagement signals — not a
+            # high constant floor — drive the score. The previous 0.86 baseline
+            # pinned almost every video to 90–100% retention regardless of
+            # content, which made the metric uninformative.
+            baseline = 0.65 - 0.20 * (progress ** 0.75)
 
             score = baseline
-            score += 0.14 * motion
-            score += 0.08 * audio_energy
-            score += 0.14 * detection_density
-            score += 0.10 * face_arousal
-            score += 0.04 * max(face_valence - 0.5, 0.0)
+            # Engagement signals lift retention toward 1.0.
+            score += 0.18 * motion
+            score += 0.10 * audio_energy
+            score += 0.18 * detection_density
+            score += 0.14 * face_arousal
+            score += 0.06 * max(face_valence - 0.5, 0.0) * 2.0
 
+            # Disengagement signals pull it down, so low-content seconds reach
+            # genuinely low retention and the metric spreads across its range.
             if is_silent and motion < 0.25:
-                score -= 0.18
+                score -= 0.24
             elif is_silent:
-                score -= 0.08
-
-            if detection_density <= 0.05 and motion < 0.2:
                 score -= 0.12
 
-            if detection_density >= 0.45:
-                score += 0.08
+            if detection_density <= 0.05 and motion < 0.2:
+                score -= 0.18
 
-            # Avoid one-frame cliffs unless all engagement signals are weak.
-            score = 0.7 * score + 0.3 * previous
-            score = _clamp(score, 0.25, 1.0)
+            if motion < 0.12 and audio_energy < 0.12:
+                score -= 0.10
+
+            if detection_density >= 0.45:
+                score += 0.06
+
+            # Light temporal smoothing avoids one-frame cliffs while still
+            # letting the curve move (lighter anchor than before: 0.25 vs 0.30).
+            score = 0.75 * score + 0.25 * previous
+            score = _clamp(score, 0.05, 1.0)
             predictions.append(round(score, 3))
             previous = score
 
