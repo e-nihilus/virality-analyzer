@@ -1,12 +1,9 @@
 import { lazy, Suspense, useCallback, useMemo, useRef } from "react";
-import { Sparkles, Loader2, WifiOff, Film } from "lucide-react";
+import { Sparkles, Loader2, Film } from "lucide-react";
 
 import { useAnalysis } from "./hooks/useAnalysis";
 import { useAnalysisStore } from "./stores/analysisStore";
 import { useVideoUpload } from "./hooks/useVideoUpload";
-import SideNav from "./components/layout/SideNav";
-import TopAppBar from "./components/layout/TopAppBar";
-import BottomNav from "./components/layout/BottomNav";
 import VideoPlayer from "./components/video/VideoPlayer";
 import ViralityScore from "./components/intelligence/ViralityScore";
 import EmotionQuadrant from "./components/intelligence/EmotionQuadrant";
@@ -142,15 +139,8 @@ export default function App() {
         onChange={handleFileChange}
       />
 
-      {/* Layout shell */}
-      <SideNav />
-      <TopAppBar />
-      <BottomNav />
-
-      {/* Data source indicator */}
-
       {/* Main content */}
-      <main className="pt-16 pb-24 lg:pb-0 lg:ml-20 lg:h-[calc(100dvh-64px)] lg:flex lg:overflow-hidden">
+      <main className="p-4 lg:p-0 lg:h-dvh lg:flex lg:overflow-hidden">
         {/* ── Left Column: Intelligence (desktop 45%) ── */}
         <section className="lg:w-[45%] lg:border-r lg:border-outline-variant/10 lg:overflow-y-auto p-4 lg:p-8 space-y-6 lg:space-y-8">
           {/* Header with virality score */}
@@ -162,7 +152,7 @@ export default function App() {
           />
 
           {/* Brain Sphere */}
-          <div className="h-[350px] rounded-xl overflow-hidden bg-[#050816]">
+          <div className="h-[350px] rounded-xl overflow-hidden bg-[#070b0f]">
             <Suspense
               fallback={
                 <div className="w-full h-full flex items-center justify-center">
@@ -257,7 +247,7 @@ export default function App() {
         </section>
 
         {/* ── Right Column: Video + Engagement (desktop 55%) ── */}
-        <section className="hidden lg:flex lg:w-[55%] flex-col bg-surface-dim">
+        <section className="hidden lg:flex lg:w-[55%] flex-col bg-surface-dim pt-[33px] px-6">
           <VideoPlayer src={activeVideo} currentTime={currentTime} duration={duration} onTimeChange={handleTimeChange} onSeek={handleSeek} onPlayingChange={handlePlayingChange} onUploadClick={handleUploadClick} />
 
           {/* Engagement Graph */}
@@ -285,17 +275,6 @@ export default function App() {
           />
         </div>
       </main>
-
-      {/* Floating action (desktop only) */}
-      <div className="hidden lg:flex fixed bottom-8 right-8 flex-col gap-3 items-end z-30">
-        <button className="flex items-center gap-2 bg-surface-container-highest border border-outline-variant/30 px-4 py-3 rounded-full hover:bg-surface-bright transition-all shadow-xl group">
-          <Sparkles
-            size={18}
-            className="text-primary group-hover:rotate-12 transition-transform"
-          />
-          <span className="font-bold text-label-sm">Analyze Variations</span>
-        </button>
-      </div>
     </div>
   );
 }

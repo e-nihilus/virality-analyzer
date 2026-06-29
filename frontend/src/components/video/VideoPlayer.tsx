@@ -97,7 +97,7 @@ export default function VideoPlayer({
   );
 
   return (
-    <div className="relative flex-1 bg-black flex items-center justify-center group rounded-xl overflow-hidden min-h-[300px]">
+    <div className="relative flex-1 bg-black flex items-center justify-center group rounded-xl overflow-hidden min-h-[240px] max-h-[55vh]">
       {hasVideo ? (
         <video
           ref={videoRef}
@@ -110,7 +110,7 @@ export default function VideoPlayer({
           muted
         />
       ) : (
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(37,99,235,0.15)_0%,transparent_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(45,212,191,0.1)_0%,transparent_70%)]" />
       )}
 
       {/* Top overlay */}
