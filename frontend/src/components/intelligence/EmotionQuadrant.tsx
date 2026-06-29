@@ -109,7 +109,7 @@ export default function EmotionQuadrant({
       >
         <div className="relative">
           {/* Glowing dot */}
-          <div className="w-4 h-4 bg-primary rounded-full shadow-[0_0_20px_rgba(180,197,255,0.8)]" />
+          <div className="w-4 h-4 bg-primary rounded-full shadow-[0_0_20px_rgba(45,212,191,0.8)]" />
 
           {/* Pulsing ring */}
           <div
